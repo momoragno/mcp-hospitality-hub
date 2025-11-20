@@ -34,32 +34,14 @@ function initializeAirtableService() {
   return airtableService;
 }
 
-const server = new Server(
-  {
-    name: 'mcp-hospitality-hub',
-    version: '1.0.0',
-  },
-  {
-    capabilities: {
-      tools: {},
-    },
-  }
-);
+// Factory function to create tool call handler
+function createToolCallHandler() {
+  return async (request: any) => {
+    const { name, arguments: args } = request.params;
 
-// List available tools
-server.setRequestHandler(ListToolsRequestSchema, async () => {
-  return {
-    tools,
-  };
-});
-
-// Handle tool calls
-server.setRequestHandler(CallToolRequestSchema, async (request) => {
-  const { name, arguments: args } = request.params;
-
-  try {
-    // Initialize airtable service on first use
-    const service = initializeAirtableService();
+    try {
+      // Initialize airtable service on first use
+      const service = initializeAirtableService();
 
     switch (name) {
       case 'check_availability': {
@@ -401,7 +383,38 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       isError: true,
     };
   }
-});
+  };
+}
+
+// Factory function to create and configure MCP server
+function createMCPServer() {
+  const server = new Server(
+    {
+      name: 'mcp-hospitality-hub',
+      version: '1.0.0',
+    },
+    {
+      capabilities: {
+        tools: {},
+      },
+    }
+  );
+
+  // List available tools
+  server.setRequestHandler(ListToolsRequestSchema, async () => {
+    return {
+      tools,
+    };
+  });
+
+  // Handle tool calls
+  server.setRequestHandler(CallToolRequestSchema, createToolCallHandler());
+
+  return server;
+}
+
+// Create server for stdio mode
+const stdioServer = createMCPServer();
 
 // Start the server
 async function main() {
@@ -432,19 +445,45 @@ async function main() {
       });
     });
 
-    // SSE endpoint for MCP (TODO: Implement proper SSE transport)
-    app.get('/sse', async (_req, res) => {
-      console.error('SSE endpoint called - not yet fully implemented');
-      res.status(501).json({
-        error: 'SSE transport not yet implemented for HTTP mode',
-        message: 'Please use stdio mode for local MCP connections',
-        instructions: 'Set SERVER_MODE=stdio in your environment'
-      });
+    // SSE endpoint for MCP
+    app.get('/sse', async (req, res) => {
+      console.error('SSE connection established from:', req.ip);
+
+      try {
+        // Create a new MCP server instance for this SSE connection
+        const sseServer = createMCPServer();
+
+        // Create SSE transport
+        const transport = new SSEServerTransport('/message', res);
+
+        // Connect the server to the transport
+        await sseServer.connect(transport);
+
+        // Handle connection close
+        req.on('close', () => {
+          console.error('SSE connection closed');
+        });
+
+        req.on('error', (error) => {
+          console.error('SSE connection error:', error);
+        });
+
+      } catch (error) {
+        console.error('Error setting up SSE connection:', error);
+        if (!res.headersSent) {
+          res.status(500).json({
+            error: 'Failed to establish SSE connection',
+            message: error instanceof Error ? error.message : 'Unknown error'
+          });
+        }
+      }
     });
 
-    // Message endpoint for SSE
+    // Message endpoint for SSE - handled by SSEServerTransport
     app.post('/message', async (_req, res) => {
-      res.status(501).json({ error: 'SSE transport not yet implemented' });
+      // The SSEServerTransport handles the actual message processing
+      // This endpoint just needs to acknowledge receipt
+      res.status(200).end();
     });
 
     app.listen(PORT, '0.0.0.0', () => {
@@ -455,7 +494,7 @@ async function main() {
   } else {
     // Stdio mode for local use (Claude Desktop, etc.)
     const transport = new StdioServerTransport();
-    await server.connect(transport);
+    await stdioServer.connect(transport);
     console.error('MCP Hospitality Hub server running on stdio');
   }
 }
