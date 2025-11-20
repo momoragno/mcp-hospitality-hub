@@ -66,31 +66,26 @@ curl https://your-app.up.railway.app/health
 # {"status":"ok","service":"mcp-hospitality-hub"}
 ```
 
-### 5. Endpoint MCP SSE
+### 5. Stato del Progetto
 
-L'endpoint SSE per integrare con strumenti esterni è:
-```
-https://your-app.up.railway.app/sse
-```
+**⚠️ IMPORTANTE**: Il trasporto SSE via HTTP non è ancora completamente implementato.
 
-Usa questo URL nei tuoi client MCP (ElevenLabs, etc.)
+Attualmente disponibili:
+- ✅ Server HTTP funzionante
+- ✅ Health check endpoint (`/health`)
+- ✅ Info endpoint (`/`)
+- ⏳ SSE transport (in sviluppo)
 
-## Integrazione con ElevenLabs
+Per utilizzare il server MCP:
+- **Locale**: Usa `SERVER_MODE=stdio` (completamente funzionante)
+- **Railway**: Deploy attivo, ma SSE endpoint non ancora pronto
 
-### Configurazione Agent
+## Prossimi Step
 
-Nel tuo ElevenLabs Agent, configura il server MCP così:
-
-```json
-{
-  "mcpServers": {
-    "hospitality-hub": {
-      "url": "https://your-app.up.railway.app/sse",
-      "transport": "sse"
-    }
-  }
-}
-```
+Il supporto SSE sarà implementato per permettere:
+- Integrazione con ElevenLabs Agent
+- Connessioni MCP via HTTPS
+- Client web remoti
 
 ## Monitoraggio
 
