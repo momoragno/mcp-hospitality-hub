@@ -324,18 +324,25 @@ server.tool({
 const mode = process.env.SERVER_MODE || 'stdio';
 const port = parseInt(process.env.PORT || '3000', 10);
 
-if (mode === 'http') {
-  // HTTP mode for cloud deployment (Railway, etc.)
-  console.error('Starting MCP server in HTTP mode...');
-  server.listen(port);
-  console.error(`MCP Hospitality Hub HTTP server running on port ${port}`);
-  console.error(`MCP endpoint: http://0.0.0.0:${port}/mcp`);
-  console.error(`Inspector: http://0.0.0.0:${port}/inspector`);
-  console.error(`Framework: mcp-use with auto HTTP/SSE support`);
-} else {
-  // Stdio mode not supported by mcp-use
-  // For stdio, you need to use the official SDK
-  console.error('ERROR: stdio mode not supported with mcp-use framework');
-  console.error('To use stdio mode, run: SERVER_MODE=http npm start');
-  process.exit(1);
+async function startServer() {
+  if (mode === 'http') {
+    // HTTP mode for cloud deployment (Railway, etc.)
+    console.error('Starting MCP server in HTTP mode...');
+    await server.listen(port);
+    console.error(`MCP Hospitality Hub HTTP server running on port ${port}`);
+    console.error(`MCP endpoint: http://0.0.0.0:${port}/mcp`);
+    console.error(`Inspector: http://0.0.0.0:${port}/inspector`);
+    console.error(`Framework: mcp-use with auto HTTP/SSE support`);
+  } else {
+    // Stdio mode not supported by mcp-use
+    // For stdio, you need to use the official SDK
+    console.error('ERROR: stdio mode not supported with mcp-use framework');
+    console.error('To use stdio mode, run: SERVER_MODE=http npm start');
+    process.exit(1);
+  }
 }
+
+startServer().catch((error) => {
+  console.error('Failed to start server:', error);
+  process.exit(1);
+});
