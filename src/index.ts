@@ -426,7 +426,10 @@ async function main() {
     const PORT = parseInt(process.env.PORT || '3000', 10);
 
     app.use(cors());
-    app.use(express.json());
+
+    // Use raw body parser for /mcp endpoint (StreamableHTTP needs raw stream)
+    // Other endpoints don't need body parsing
+    app.use('/mcp', express.raw({ type: '*/*', limit: '10mb' }));
 
     // Health check endpoint
     app.get('/health', (_req, res) => {
