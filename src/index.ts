@@ -450,10 +450,13 @@ async function main() {
       console.error('SSE connection established from:', req.ip);
 
       try {
+        // Disable nginx/proxy buffering for SSE
+        res.setHeader('X-Accel-Buffering', 'no');
+
         // Create a new MCP server instance for this SSE connection
         const sseServer = createMCPServer();
 
-        // Create SSE transport
+        // Create SSE transport (it will set its own headers)
         const transport = new SSEServerTransport('/message', res);
 
         // Connect the server to the transport
