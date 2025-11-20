@@ -447,32 +447,48 @@ async function main() {
 
     // SSE endpoint for MCP
     app.get('/sse', async (req, res) => {
-      console.error('SSE connection established from:', req.ip);
+      const connectionId = Date.now();
+      console.error(`[${connectionId}] === NEW SSE CONNECTION ===`);
+      console.error(`[${connectionId}] IP: ${req.ip}`);
+      console.error(`[${connectionId}] Headers:`, JSON.stringify(req.headers, null, 2));
+      console.error(`[${connectionId}] Query params:`, JSON.stringify(req.query, null, 2));
 
       try {
         // Disable nginx/proxy buffering for SSE
         res.setHeader('X-Accel-Buffering', 'no');
+        console.error(`[${connectionId}] Set X-Accel-Buffering header`);
 
         // Create a new MCP server instance for this SSE connection
+        console.error(`[${connectionId}] Creating MCP server instance...`);
         const sseServer = createMCPServer();
 
         // Create SSE transport (it will set its own headers)
+        console.error(`[${connectionId}] Creating SSE transport...`);
         const transport = new SSEServerTransport('/message', res);
 
         // Connect the server to the transport
+        console.error(`[${connectionId}] Connecting server to transport...`);
         await sseServer.connect(transport);
+        console.error(`[${connectionId}] Server connected successfully!`);
 
         // Handle connection close
         req.on('close', () => {
-          console.error('SSE connection closed');
+          console.error(`[${connectionId}] SSE connection closed`);
         });
 
         req.on('error', (error) => {
-          console.error('SSE connection error:', error);
+          console.error(`[${connectionId}] SSE connection error:`, {
+            message: error.message,
+            stack: error.stack,
+            code: (error as any).code
+          });
         });
 
       } catch (error) {
-        console.error('Error setting up SSE connection:', error);
+        console.error(`[${connectionId}] Error setting up SSE connection:`, {
+          message: error instanceof Error ? error.message : 'Unknown error',
+          stack: error instanceof Error ? error.stack : undefined
+        });
         if (!res.headersSent) {
           res.status(500).json({
             error: 'Failed to establish SSE connection',
@@ -483,10 +499,16 @@ async function main() {
     });
 
     // Message endpoint for SSE - handled by SSEServerTransport
-    app.post('/message', async (_req, res) => {
+    app.post('/message', async (req, res) => {
+      console.error('=== MESSAGE ENDPOINT CALLED ===');
+      console.error('IP:', req.ip);
+      console.error('Headers:', JSON.stringify(req.headers, null, 2));
+      console.error('Body:', JSON.stringify(req.body, null, 2));
+
       // The SSEServerTransport handles the actual message processing
       // This endpoint just needs to acknowledge receipt
       res.status(200).end();
+      console.error('Message endpoint response sent (200 OK)');
     });
 
     app.listen(PORT, '0.0.0.0', () => {
