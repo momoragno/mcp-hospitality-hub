@@ -10,6 +10,7 @@ Un server MCP (Model Context Protocol) per gestire operazioni di receptionist AI
 - **[AIRTABLE_SETUP.md](./AIRTABLE_SETUP.md)** - Guida completa configurazione Airtable
 - **[DEVELOPMENT.md](./DEVELOPMENT.md)** - Guida per sviluppatori
 - **[DEPLOYMENT.md](./DEPLOYMENT.md)** - Deploy in produzione
+- **[RAILWAY_DEPLOYMENT.md](./RAILWAY_DEPLOYMENT.md)** - 🚀 Deploy su Railway con HTTPS
 
 ## Caratteristiche
 

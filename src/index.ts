@@ -2,6 +2,7 @@
 
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
+import { SSEServerTransport } from '@modelcontextprotocol/sdk/server/sse.js';
 import {
   CallToolRequestSchema,
   ListToolsRequestSchema,
@@ -18,16 +19,20 @@ import {
   GetRoomByNumberSchema,
   GetBookingByRoomSchema,
 } from './tools/index.js';
+import express from 'express';
+import cors from 'cors';
 
-// Validate configuration on startup
-try {
-  validateConfig();
-} catch (error) {
-  console.error('Configuration error:', error);
-  process.exit(1);
+// Airtable service will be initialized after validation
+let airtableService: AirtableService | null = null;
+
+// Validate config and initialize service
+function initializeAirtableService() {
+  if (!airtableService) {
+    validateConfig();
+    airtableService = new AirtableService();
+  }
+  return airtableService;
 }
-
-const airtableService = new AirtableService();
 
 const server = new Server(
   {
@@ -53,10 +58,13 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
   const { name, arguments: args } = request.params;
 
   try {
+    // Initialize airtable service on first use
+    const service = initializeAirtableService();
+
     switch (name) {
       case 'check_availability': {
         const validated = CheckAvailabilitySchema.parse(args);
-        const availableRooms = await airtableService.checkAvailability(validated);
+        const availableRooms = await service.checkAvailability(validated);
 
         return {
           content: [
@@ -87,7 +95,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         const validated = CreateBookingSchema.parse(args);
 
         // Calculate total price
-        const room = await airtableService.getRoomByNumber(
+        const room = await service.getRoomByNumber(
           validated.roomId // Note: this should be validated in production
         );
 
@@ -112,7 +120,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         );
         const totalPrice = room.price * nights;
 
-        const booking = await airtableService.createBooking({
+        const booking = await service.createBooking({
           roomId: validated.roomId,
           guestName: validated.guestName,
           guestEmail: validated.guestEmail,
@@ -154,7 +162,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
       case 'update_booking': {
         const validated = UpdateBookingSchema.parse(args);
-        const booking = await airtableService.updateBooking(
+        const booking = await service.updateBooking(
           validated.bookingId,
           validated
         );
@@ -179,7 +187,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
       case 'get_menu': {
         const validated = GetMenuSchema.parse(args);
-        const menu = await airtableService.getMenu(validated.category);
+        const menu = await service.getMenu(validated.category);
 
         return {
           content: [
@@ -214,7 +222,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         const itemsWithDetails = [];
 
         for (const item of validated.items) {
-          const menuItem = await airtableService.getMenuItem(item.menuItemId);
+          const menuItem = await service.getMenuItem(item.menuItemId);
           if (!menuItem) {
             return {
               content: [
@@ -252,7 +260,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           });
         }
 
-        const order = await airtableService.createRoomServiceOrder({
+        const order = await service.createRoomServiceOrder({
           roomNumber: validated.roomNumber,
           items: itemsWithDetails,
           totalAmount,
@@ -287,7 +295,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
       case 'get_room_info': {
         const validated = GetRoomByNumberSchema.parse(args);
-        const room = await airtableService.getRoomByNumber(validated.roomNumber);
+        const room = await service.getRoomByNumber(validated.roomNumber);
 
         if (!room) {
           return {
@@ -322,7 +330,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
       case 'get_active_booking': {
         const validated = GetBookingByRoomSchema.parse(args);
-        const booking = await airtableService.getBookingByRoomNumber(
+        const booking = await service.getBookingByRoomNumber(
           validated.roomNumber
         );
 
@@ -397,9 +405,59 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
 // Start the server
 async function main() {
-  const transport = new StdioServerTransport();
-  await server.connect(transport);
-  console.error('MCP Hospitality Hub server running on stdio');
+  const mode = process.env.SERVER_MODE || 'stdio';
+
+  if (mode === 'http') {
+    // HTTP/SSE mode for cloud deployment (Railway, etc.)
+    const app = express();
+    const PORT = parseInt(process.env.PORT || '3000', 10);
+
+    app.use(cors());
+    app.use(express.json());
+
+    // Health check endpoint
+    app.get('/health', (_req, res) => {
+      res.json({ status: 'ok', service: 'mcp-hospitality-hub' });
+    });
+
+    // Root endpoint
+    app.get('/', (_req, res) => {
+      res.json({
+        service: 'mcp-hospitality-hub',
+        version: '1.0.0',
+        endpoints: {
+          health: '/health',
+          sse: '/sse'
+        }
+      });
+    });
+
+    // SSE endpoint for MCP (TODO: Implement proper SSE transport)
+    app.get('/sse', async (_req, res) => {
+      console.error('SSE endpoint called - not yet fully implemented');
+      res.status(501).json({
+        error: 'SSE transport not yet implemented for HTTP mode',
+        message: 'Please use stdio mode for local MCP connections',
+        instructions: 'Set SERVER_MODE=stdio in your environment'
+      });
+    });
+
+    // Message endpoint for SSE
+    app.post('/message', async (_req, res) => {
+      res.status(501).json({ error: 'SSE transport not yet implemented' });
+    });
+
+    app.listen(PORT, '0.0.0.0', () => {
+      console.error(`MCP Hospitality Hub HTTP server running on port ${PORT}`);
+      console.error(`Health check: http://0.0.0.0:${PORT}/health`);
+      console.error(`SSE endpoint: http://0.0.0.0:${PORT}/sse`);
+    });
+  } else {
+    // Stdio mode for local use (Claude Desktop, etc.)
+    const transport = new StdioServerTransport();
+    await server.connect(transport);
+    console.error('MCP Hospitality Hub server running on stdio');
+  }
 }
 
 main().catch((error) => {
