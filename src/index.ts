@@ -2,7 +2,7 @@
 
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
-import { SSEServerTransport } from '@modelcontextprotocol/sdk/server/sse.js';
+import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import {
   CallToolRequestSchema,
   ListToolsRequestSchema,
@@ -440,59 +440,65 @@ async function main() {
         version: '1.0.0',
         endpoints: {
           health: '/health',
-          sse: '/sse'
+          mcp: '/mcp'
         }
       });
     });
 
-    // SSE endpoint for MCP
-    app.get('/sse', async (req, res) => {
-      console.error('SSE connection established from:', req.ip);
+    // MCP endpoint using StreamableHTTP transport (modern protocol)
+    app.post('/mcp', async (req, res) => {
+      const requestId = Date.now();
+      console.error(`[${requestId}] === NEW MCP REQUEST ===`);
+      console.error(`[${requestId}] IP: ${req.ip}`);
+      console.error(`[${requestId}] Headers:`, JSON.stringify(req.headers, null, 2));
 
       try {
-        // Disable nginx/proxy buffering for SSE
-        res.setHeader('X-Accel-Buffering', 'no');
+        // Create a new MCP server instance for this request
+        console.error(`[${requestId}] Creating MCP server instance...`);
+        const mcpServer = createMCPServer();
 
-        // Create a new MCP server instance for this SSE connection
-        const sseServer = createMCPServer();
-
-        // Create SSE transport (it will set its own headers)
-        const transport = new SSEServerTransport('/message', res);
-
-        // Connect the server to the transport
-        await sseServer.connect(transport);
-
-        // Handle connection close
-        req.on('close', () => {
-          console.error('SSE connection closed');
+        // Create StreamableHTTP transport (stateless mode)
+        console.error(`[${requestId}] Creating StreamableHTTP transport...`);
+        const transport = new StreamableHTTPServerTransport({
+          sessionIdGenerator: undefined, // Stateless mode for Railway
+          enableJsonResponse: true
         });
 
-        req.on('error', (error) => {
-          console.error('SSE connection error:', error);
+        // Connect the server to the transport
+        console.error(`[${requestId}] Connecting server to transport...`);
+        await mcpServer.connect(transport);
+        console.error(`[${requestId}] Server connected successfully!`);
+
+        // Handle the request
+        console.error(`[${requestId}] Handling MCP request...`);
+        await transport.handleRequest(req, res);
+        console.error(`[${requestId}] Request handled successfully!`);
+
+        // Cleanup on response close
+        res.on('close', () => {
+          console.error(`[${requestId}] Connection closed, cleaning up...`);
+          transport.close();
         });
 
       } catch (error) {
-        console.error('Error setting up SSE connection:', error);
+        console.error(`[${requestId}] Error handling MCP request:`, {
+          message: error instanceof Error ? error.message : 'Unknown error',
+          stack: error instanceof Error ? error.stack : undefined
+        });
         if (!res.headersSent) {
           res.status(500).json({
-            error: 'Failed to establish SSE connection',
+            error: 'Failed to handle MCP request',
             message: error instanceof Error ? error.message : 'Unknown error'
           });
         }
       }
     });
 
-    // Message endpoint for SSE - handled by SSEServerTransport
-    app.post('/message', async (_req, res) => {
-      // The SSEServerTransport handles the actual message processing
-      // This endpoint just needs to acknowledge receipt
-      res.status(200).end();
-    });
-
     app.listen(PORT, '0.0.0.0', () => {
       console.error(`MCP Hospitality Hub HTTP server running on port ${PORT}`);
       console.error(`Health check: http://0.0.0.0:${PORT}/health`);
-      console.error(`SSE endpoint: http://0.0.0.0:${PORT}/sse`);
+      console.error(`MCP endpoint: http://0.0.0.0:${PORT}/mcp`);
+      console.error(`Transport: StreamableHTTP (modern MCP protocol)`);
     });
   } else {
     // Stdio mode for local use (Claude Desktop, etc.)
