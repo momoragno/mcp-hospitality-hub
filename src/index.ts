@@ -13,10 +13,8 @@ import {
   GetBookingByRoomSchema,
 } from './tools/index.js';
 
-// Airtable service will be initialized after validation
 let airtableService: AirtableService | null = null;
 
-// Validate config and initialize service
 function initializeAirtableService() {
   if (!airtableService) {
     validateConfig();
@@ -25,13 +23,9 @@ function initializeAirtableService() {
   return airtableService;
 }
 
-// Create MCP server with mcp-use
 const server = createMCPServer('mcp-hospitality-hub', {
   version: '1.0.0',
   description: 'MCP server for AI Receptionist - Airtable integration for hotel management',
-  baseUrl: process.env.MCP_URL || process.env.RAILWAY_PUBLIC_DOMAIN
-    ? `https://${process.env.RAILWAY_PUBLIC_DOMAIN}`
-    : 'http://localhost:3000'
 });
 
 // Define tools using mcp-use API
@@ -320,29 +314,13 @@ server.tool({
   },
 });
 
-// Start the server
-const mode = process.env.SERVER_MODE || 'stdio';
 const port = parseInt(process.env.PORT || '3000', 10);
 
-async function startServer() {
-  if (mode === 'http') {
-    // HTTP mode for cloud deployment (Railway, etc.)
-    console.error('Starting MCP server in HTTP mode...');
-    await server.listen(port);
-    console.error(`MCP Hospitality Hub HTTP server running on port ${port}`);
-    console.error(`MCP endpoint: http://0.0.0.0:${port}/mcp`);
-    console.error(`Inspector: http://0.0.0.0:${port}/inspector`);
-    console.error(`Framework: mcp-use with auto HTTP/SSE support`);
-  } else {
-    // Stdio mode not supported by mcp-use
-    // For stdio, you need to use the official SDK
-    console.error('ERROR: stdio mode not supported with mcp-use framework');
-    console.error('To use stdio mode, run: SERVER_MODE=http npm start');
-    process.exit(1);
-  }
-}
-
-startServer().catch((error) => {
+server.listen(port).then(() => {
+  console.error(`MCP Hospitality Hub running on port ${port}`);
+  console.error(`MCP endpoint: http://localhost:${port}/mcp`);
+  console.error(`Inspector: http://localhost:${port}/inspector`);
+}).catch((error) => {
   console.error('Failed to start server:', error);
   process.exit(1);
 });
