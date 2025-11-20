@@ -66,34 +66,43 @@ curl https://your-app.up.railway.app/health
 # {"status":"ok","service":"mcp-hospitality-hub"}
 ```
 
-### 5. Endpoint MCP SSE
+### 5. Endpoint MCP StreamableHTTP
 
-**✅ SSE Transport Implementato!**
+**✅ StreamableHTTP Transport Implementato!**
 
-L'endpoint SSE è ora completamente funzionante:
+L'endpoint MCP è completamente funzionante con il protocollo moderno StreamableHTTP:
 
 ```
-https://your-app.up.railway.app/sse
+https://your-app.up.railway.app/mcp
 ```
+
+**Perché StreamableHTTP invece di SSE?**
+- 🚀 Protocollo MCP moderno (SSE deprecato da marzo 2025)
+- ⚡ Stateless - perfetto per deployment serverless
+- 🔄 Più affidabile - nessuna perdita di messaggi
+- 📡 Un singolo endpoint invece di due
+- ✅ Compatibile con ElevenLabs Agent
 
 Funzionalità disponibili:
 - ✅ Server HTTP funzionante
 - ✅ Health check endpoint (`/health`)
 - ✅ Info endpoint (`/`)
-- ✅ SSE transport per MCP
-- ✅ Supporto connessioni multiple simultanee
-- ✅ Session management automatico
+- ✅ StreamableHTTP transport per MCP
+- ✅ Stateless mode per scalabilità
+- ✅ Logging dettagliato per debugging
 
 ## Integrazione con ElevenLabs Agent
 
 ### Configurazione
 
-Nel tuo ElevenLabs Agent, configura il server MCP usando l'URL SSE:
+Nel tuo ElevenLabs Agent, configura il server MCP usando l'URL MCP:
 
 ```
-URL: https://mcp-hospitality-hub-production.up.railway.app/sse
-Transport: SSE
+URL: https://mcp-hospitality-hub-production.up.railway.app/mcp
+Transport: StreamableHTTP (o lascia auto-detect)
 ```
+
+**Nota:** ElevenLabs supporta sia SSE che StreamableHTTP. Il nostro server ora usa il protocollo moderno StreamableHTTP che è più affidabile e performante.
 
 ### Tool Disponibili
 
@@ -191,7 +200,16 @@ railway up
 Dopo il deploy, avrai:
 
 - **Health Check**: `https://your-app.up.railway.app/health`
-- **MCP SSE Endpoint**: `https://your-app.up.railway.app/sse`
+- **MCP Endpoint**: `https://your-app.up.railway.app/mcp`
+- **Info Endpoint**: `https://your-app.up.railway.app/`
+
+Test dell'endpoint MCP:
+```bash
+# Test con curl
+curl -X POST https://your-app.up.railway.app/mcp \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","method":"tools/list","id":1}'
+```
 
 ## Sicurezza
 
