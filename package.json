@@ -1,0 +1,35 @@
+{
+  "name": "mcp-hospitality-hub",
+  "version": "1.0.0",
+  "description": "MCP server for AI Receptionist - Airtable integration for hotel management",
+  "type": "module",
+  "main": "dist/index.js",
+  "bin": {
+    "mcp-hospitality-hub": "dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "prepare": "npm run build",
+    "inspector": "npx @modelcontextprotocol/inspector dist/index.js"
+  },
+  "keywords": [
+    "mcp",
+    "hospitality",
+    "airtable",
+    "ai-receptionist",
+    "elevenlabs"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.4",
+    "airtable": "^0.12.2",
+    "dotenv": "^16.4.5",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "typescript": "^5.7.2"
+  }
+}

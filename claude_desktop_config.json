@@ -1,0 +1,14 @@
+{
+  "mcpServers": {
+    "hospitality-hub": {
+      "command": "node",
+      "args": [
+        "/Users/momo.ramadori/mcp-hospitality-hub/dist/index.js"
+      ],
+      "env": {
+        "AIRTABLE_API_KEY": "your_key_here",
+        "AIRTABLE_BASE_ID": "your_base_id_here"
+      }
+    }
+  }
+}
