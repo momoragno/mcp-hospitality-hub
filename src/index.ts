@@ -64,9 +64,105 @@ function handleError(toolName: string, error: unknown, params: any, span?: any) 
 }
 
 // Define tools using mcp-use API
+// NOTE: Tool order matters! Most commonly confused tools should be defined first with explicit descriptions.
+
+server.tool({
+  name: 'show_food_menu',
+  description: '🍽️ FOOD/BEVERAGE MENU - USE THIS TOOL when guest asks about: "menu", "food", "eat", "meal", "breakfast", "lunch", "dinner", "drinks", "order food", "room service menu", "what can I eat", "cuisine", "dishes", "vegetarian", "vegan", "gluten-free", "allergens", "hungry", "snacks", "desserts", "dining", "restaurant". Shows complete restaurant menu with prices and dietary info. DO NOT confuse with room availability (use check_availability) or room features (use get_room_info). This tool is ONLY for food/drinks menu.',
+  inputs: [
+    { name: 'category', type: 'string', required: false, description: 'Category filter (breakfast, lunch, dinner, drinks, desserts)' },
+    { name: 'vegetarian', type: 'boolean', required: false, description: 'Set to true to show only vegetarian items' },
+    { name: 'vegan', type: 'boolean', required: false, description: 'Set to true to show only vegan items' },
+    { name: 'glutenFree', type: 'boolean', required: false, description: 'Set to true to show only gluten-free items' },
+    { name: 'excludeAllergens', type: 'array', required: false, description: 'Exclude items with these allergens (e.g., ["dairy", "nuts"])' },
+  ],
+  cb: async (params) => {
+    const trace = langfuse?.trace({
+      name: 'show_food_menu',
+      metadata: { params },
+      tags: ['mcp-tool', 'menu']
+    });
+    const span = trace?.span({ name: 'execution', startTime: new Date() });
+
+    try {
+      console.error(`[${new Date().toISOString()}] show_food_menu called:`, JSON.stringify(params));
+
+      const validated = GetMenuSchema.parse(params);
+      const menu = await airtableService.getMenu(validated);
+
+      if (menu.length === 0) {
+        span?.end({ output: { success: true, itemCount: 0 } });
+        return {
+          content: [{
+            type: 'text',
+            text: 'No menu items found matching your criteria. Please try different filters or contact the kitchen for more options.',
+          }],
+        };
+      }
+
+      // Build human-readable response
+      let response = `MENU`;
+
+      // Add filter description
+      const filterParts: string[] = [];
+      if (validated.category) filterParts.push(`Category: ${validated.category}`);
+      if (validated.vegetarian) filterParts.push('Vegetarian');
+      if (validated.vegan) filterParts.push('Vegan');
+      if (validated.glutenFree) filterParts.push('Gluten-Free');
+      if (validated.excludeAllergens?.length) filterParts.push(`No ${validated.excludeAllergens.join(', ')}`);
+
+      if (filterParts.length > 0) {
+        response += ` (Filtered: ${filterParts.join(', ')})`;
+      }
+      response += `\n\nFound ${menu.length} item${menu.length === 1 ? '' : 's'}:\n\n`;
+
+      // Group by category for better readability
+      const categories = [...new Set(menu.map((item) => item.category))];
+
+      categories.forEach((category) => {
+        const categoryItems = menu.filter((item) => item.category === category);
+        response += `=== ${category.toUpperCase()} ===\n\n`;
+
+        categoryItems.forEach((item, idx) => {
+          response += `${idx + 1}. ${item.name} - €${item.price.toFixed(2)}\n`;
+          response += `   ${item.description}\n`;
+
+          // Add dietary info
+          const dietaryTags: string[] = [];
+          if (item.vegetarian) dietaryTags.push('Vegetarian');
+          if (item.vegan) dietaryTags.push('Vegan');
+          if (item.glutenFree) dietaryTags.push('Gluten-Free');
+          if (dietaryTags.length > 0) {
+            response += `   Dietary: ${dietaryTags.join(', ')}\n`;
+          }
+
+          if (item.allergens && item.allergens.length > 0) {
+            response += `   Allergens: ${item.allergens.join(', ')}\n`;
+          }
+
+          response += `   Item ID: ${item.id} (use this ID to place orders)\n\n`;
+        });
+      });
+
+      response += `\nTo order any item, use the create_room_service_order tool with the Item ID.`;
+
+      span?.end({ output: { success: true, itemCount: menu.length, categories: categories.length } });
+
+      return {
+        content: [{
+          type: 'text',
+          text: response,
+        }],
+      };
+    } catch (error) {
+      return handleError('show_food_menu', error, params, span);
+    }
+  },
+});
+
 server.tool({
   name: 'check_availability',
-  description: '📅 ROOM AVAILABILITY CHECK - Searches for vacant hotel rooms for specific dates. Use when guest wants to book/reserve/check-in or asks about available rooms for dates. Returns rooms with prices. NOT for menu or food questions.',
+  description: '📅 ROOM AVAILABILITY CHECK - Searches for vacant hotel rooms for specific dates. Use when guest wants to book/reserve/check-in or asks about available rooms for dates. Returns rooms with prices. NOT for menu or food questions (use show_food_menu instead).',
   inputs: [
     { name: 'checkIn', type: 'string', required: true, description: 'Check-in date (ISO format)' },
     { name: 'checkOut', type: 'string', required: true, description: 'Check-out date (ISO format)' },
@@ -305,102 +401,8 @@ server.tool({
 });
 
 server.tool({
-  name: 'get_menu',
-  description: '🍽️ RESTAURANT/FOOD MENU - CALL THIS FIRST when guest mentions: "menu", "food", "eat", "meal", "breakfast", "lunch", "dinner", "drinks", "order food", "room service menu", "what can I eat", "cuisine", "vegetarian", "vegan", "gluten-free", "allergens", "hungry", "snacks", "desserts". Shows complete food/beverage menu with prices. NEVER use get_room_info for menu requests - that tool is for physical room features only (WiFi, TV, bed type).',
-  inputs: [
-    { name: 'category', type: 'string', required: false, description: 'Category filter (breakfast, lunch, dinner, drinks, desserts)' },
-    { name: 'vegetarian', type: 'boolean', required: false, description: 'Set to true to show only vegetarian items' },
-    { name: 'vegan', type: 'boolean', required: false, description: 'Set to true to show only vegan items' },
-    { name: 'glutenFree', type: 'boolean', required: false, description: 'Set to true to show only gluten-free items' },
-    { name: 'excludeAllergens', type: 'array', required: false, description: 'Exclude items with these allergens (e.g., ["dairy", "nuts"])' },
-  ],
-  cb: async (params) => {
-    const trace = langfuse?.trace({
-      name: 'get_menu',
-      metadata: { params },
-      tags: ['mcp-tool', 'menu']
-    });
-    const span = trace?.span({ name: 'execution', startTime: new Date() });
-
-    try {
-      console.error(`[${new Date().toISOString()}] get_menu called:`, JSON.stringify(params));
-
-      const validated = GetMenuSchema.parse(params);
-      const menu = await airtableService.getMenu(validated);
-
-      if (menu.length === 0) {
-        span?.end({ output: { success: true, itemCount: 0 } });
-        return {
-          content: [{
-            type: 'text',
-            text: 'No menu items found matching your criteria. Please try different filters or contact the kitchen for more options.',
-          }],
-        };
-      }
-
-      // Build human-readable response
-      let response = `MENU`;
-
-      // Add filter description
-      const filterParts: string[] = [];
-      if (validated.category) filterParts.push(`Category: ${validated.category}`);
-      if (validated.vegetarian) filterParts.push('Vegetarian');
-      if (validated.vegan) filterParts.push('Vegan');
-      if (validated.glutenFree) filterParts.push('Gluten-Free');
-      if (validated.excludeAllergens?.length) filterParts.push(`No ${validated.excludeAllergens.join(', ')}`);
-
-      if (filterParts.length > 0) {
-        response += ` (Filtered: ${filterParts.join(', ')})`;
-      }
-      response += `\n\nFound ${menu.length} item${menu.length === 1 ? '' : 's'}:\n\n`;
-
-      // Group by category for better readability
-      const categories = [...new Set(menu.map((item) => item.category))];
-
-      categories.forEach((category) => {
-        const categoryItems = menu.filter((item) => item.category === category);
-        response += `=== ${category.toUpperCase()} ===\n\n`;
-
-        categoryItems.forEach((item, idx) => {
-          response += `${idx + 1}. ${item.name} - €${item.price.toFixed(2)}\n`;
-          response += `   ${item.description}\n`;
-
-          // Add dietary info
-          const dietaryTags: string[] = [];
-          if (item.vegetarian) dietaryTags.push('Vegetarian');
-          if (item.vegan) dietaryTags.push('Vegan');
-          if (item.glutenFree) dietaryTags.push('Gluten-Free');
-          if (dietaryTags.length > 0) {
-            response += `   Dietary: ${dietaryTags.join(', ')}\n`;
-          }
-
-          if (item.allergens && item.allergens.length > 0) {
-            response += `   Allergens: ${item.allergens.join(', ')}\n`;
-          }
-
-          response += `   Item ID: ${item.id} (use this ID to place orders)\n\n`;
-        });
-      });
-
-      response += `\nTo order any item, use the create_room_service_order tool with the Item ID.`;
-
-      span?.end({ output: { success: true, itemCount: menu.length, categories: categories.length } });
-
-      return {
-        content: [{
-          type: 'text',
-          text: response,
-        }],
-      };
-    } catch (error) {
-      return handleError('get_menu', error, params, span);
-    }
-  },
-});
-
-server.tool({
   name: 'create_room_service_order',
-  description: '🍕 ORDER FOOD/DRINKS - Places room service order for food delivery to guest room. Use AFTER get_menu. For ordering meals/beverages only.',
+  description: '🍕 ORDER FOOD/DRINKS - Places room service order for food delivery to guest room. Use AFTER show_food_menu. For ordering meals/beverages only.',
   inputs: [
     { name: 'roomNumber', type: 'string', required: true, description: 'Room number' },
     { name: 'items', type: 'array', required: true, description: 'Array of menu items to order' },
@@ -430,7 +432,7 @@ server.tool({
           return {
             content: [{
               type: 'text',
-              text: `Error: Menu item ${item.menuItemId} not found. Please use get_menu to see available items and use the correct Item ID.`
+              text: `Error: Menu item ${item.menuItemId} not found. Please use show_food_menu to see available items and use the correct Item ID.`
             }],
             isError: true
           };
