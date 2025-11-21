@@ -276,8 +276,10 @@ server.tool({
 
       const validated = CreateBookingSchema.parse(params);
 
-      // Get room details first
-      const room = await airtableService.getRoomByNumber(validated.roomId);
+      // Get room details by ID (roomId is already the Airtable record ID)
+      const allRooms = await airtableService.getRooms();
+      const room = allRooms.find(r => r.id === validated.roomId);
+
       if (!room) {
         span?.end({ level: 'WARNING', output: { success: false, reason: 'room_not_found' } });
         return {
