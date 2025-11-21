@@ -31,6 +31,17 @@ export interface MenuItem {
   price: number;
   available: boolean;
   allergens?: string[];
+  vegetarian?: boolean;
+  vegan?: boolean;
+  glutenFree?: boolean;
+}
+
+export interface MenuFilters {
+  category?: string;
+  vegetarian?: boolean;
+  vegan?: boolean;
+  glutenFree?: boolean;
+  excludeAllergens?: string[];
 }
 
 export interface RoomServiceOrder {

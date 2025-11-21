@@ -24,11 +24,16 @@ export const UpdateBookingSchema = z.object({
   checkIn: z.string().optional().describe('New check-in date in ISO format (YYYY-MM-DD)'),
   checkOut: z.string().optional().describe('New check-out date in ISO format (YYYY-MM-DD)'),
   guests: z.number().optional().describe('New number of guests'),
+  status: z.enum(['confirmed', 'checked-in', 'checked-out', 'cancelled']).optional().describe('Booking status'),
   specialRequests: z.string().optional().describe('Updated special requests'),
 });
 
 export const GetMenuSchema = z.object({
   category: z.string().optional().describe('Filter menu by category (e.g., breakfast, lunch, dinner, drinks)'),
+  vegetarian: z.boolean().optional().describe('Show only vegetarian items'),
+  vegan: z.boolean().optional().describe('Show only vegan items'),
+  glutenFree: z.boolean().optional().describe('Show only gluten-free items'),
+  excludeAllergens: z.array(z.string()).optional().describe('Exclude items with these allergens (e.g., ["dairy", "nuts"])'),
 });
 
 export const CreateRoomServiceOrderSchema = z.object({

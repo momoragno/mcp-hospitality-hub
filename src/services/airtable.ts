@@ -168,20 +168,53 @@ export class AirtableService {
   }
 
   // MENU MANAGEMENT
-  async getMenu(category?: string): Promise<MenuItem[]> {
+  async getMenu(filters?: import('../types/index.js').MenuFilters): Promise<MenuItem[]> {
     const selectOptions: any = {};
 
-    if (category) {
-      selectOptions.filterByFormula = `{Category} = '${category}'`;
+    // Filter by category in Airtable query if provided
+    if (filters?.category) {
+      selectOptions.filterByFormula = `{Category} = '${filters.category}'`;
     }
 
     const records = await this.base(config.airtable.tables.menu)
       .select(selectOptions)
       .all();
 
-    // Filter by available in memory
-    const allItems = records.map((record) => this.mapRecordToMenuItem(record));
-    return allItems.filter((item) => item.available !== false);
+    // Map all records
+    let items = records.map((record) => this.mapRecordToMenuItem(record));
+
+    // Filter by available
+    items = items.filter((item) => item.available !== false);
+
+    // Apply dietary filters in memory
+    if (filters?.vegetarian) {
+      items = items.filter((item) => item.vegetarian === true);
+    }
+
+    if (filters?.vegan) {
+      items = items.filter((item) => item.vegan === true);
+    }
+
+    if (filters?.glutenFree) {
+      items = items.filter((item) => item.glutenFree === true);
+    }
+
+    // Filter out items with excluded allergens
+    if (filters?.excludeAllergens && filters.excludeAllergens.length > 0) {
+      items = items.filter((item) => {
+        if (!item.allergens || item.allergens.length === 0) {
+          return true; // No allergens, so safe to include
+        }
+        // Check if any of the item's allergens are in the exclusion list
+        return !item.allergens.some((allergen) =>
+          filters.excludeAllergens!.some((excluded) =>
+            allergen.toLowerCase().includes(excluded.toLowerCase())
+          )
+        );
+      });
+    }
+
+    return items;
   }
 
   async getMenuItem(itemId: string): Promise<MenuItem | null> {
@@ -260,6 +293,9 @@ export class AirtableService {
       price: record.get('Price') as number,
       available: record.get('Available') as boolean,
       allergens: (record.get('Allergens') as string)?.split(',').map(a => a.trim()) || [],
+      vegetarian: record.get('Vegetarian') as boolean | undefined,
+      vegan: record.get('Vegan') as boolean | undefined,
+      glutenFree: record.get('GlutenFree') as boolean | undefined,
     };
   }
 
