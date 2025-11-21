@@ -306,7 +306,7 @@ server.tool({
 
 server.tool({
   name: 'get_menu',
-  description: '🍽️ FOOD & DRINKS MENU ONLY - Shows restaurant menu, meals, food items, beverages. Use when guest asks about: food, eating, menu, meals, breakfast, lunch, dinner, drinks, desserts, snacks, cuisine, dishes, vegetarian, vegan, gluten-free, allergens, what to eat, what to drink, dining options. Returns menu with prices and dietary information. NOT for room details or bookings.',
+  description: '🍽️ RESTAURANT/FOOD MENU - CALL THIS FIRST when guest mentions: "menu", "food", "eat", "meal", "breakfast", "lunch", "dinner", "drinks", "order food", "room service menu", "what can I eat", "cuisine", "vegetarian", "vegan", "gluten-free", "allergens", "hungry", "snacks", "desserts". Shows complete food/beverage menu with prices. NEVER use get_room_info for menu requests - that tool is for physical room features only (WiFi, TV, bed type).',
   inputs: [
     { name: 'category', type: 'string', required: false, description: 'Category filter (breakfast, lunch, dinner, drinks, desserts)' },
     { name: 'vegetarian', type: 'boolean', required: false, description: 'Set to true to show only vegetarian items' },
@@ -501,9 +501,9 @@ server.tool({
 
 server.tool({
   name: 'get_room_info',
-  description: '🛏️ ROOM DETAILS ONLY - Gets technical specs about a SPECIFIC PHYSICAL ROOM (room capacity, bed type, amenities like WiFi/TV, room status). Use ONLY when guest asks about a specific room number\'s features, NOT for food/menu/dining questions. Requires exact room number.',
+  description: '🛏️ PHYSICAL ROOM SPECS - Gets ONLY technical room features for a NUMERIC room number (e.g., "101", "305"). Shows: bed type, room capacity, WiFi, TV, bathroom amenities, room status. Use ONLY when guest provides a SPECIFIC ROOM NUMBER and asks about that room\'s physical features. DO NOT USE if guest says "menu" - use get_menu instead. DO NOT USE for food/dining questions. Requires numeric room number like "101" or "305".',
   inputs: [
-    { name: 'roomNumber', type: 'string', required: true, description: 'Room number' },
+    { name: 'roomNumber', type: 'string', required: true, description: 'Numeric room number (e.g., "101", "305", NOT "menu" or other words)' },
   ],
   cb: async (params) => {
     const trace = langfuse?.trace({
@@ -515,6 +515,18 @@ server.tool({
 
     try {
       console.error(`[${new Date().toISOString()}] get_room_info called:`, params.roomNumber);
+
+      // Validate that roomNumber is actually a room number, not a word like "menu"
+      if (params.roomNumber && /^(menu|food|eat|breakfast|lunch|dinner|drinks|meal|order)$/i.test(params.roomNumber)) {
+        span?.end({ level: 'ERROR', output: { success: false, reason: 'invalid_room_number', hint: 'use_get_menu_instead' } });
+        return {
+          content: [{
+            type: 'text',
+            text: `Error: This tool is for room information only. To see the food menu, please use the get_menu tool instead. If you need room information, provide a numeric room number like "101" or "305".`
+          }],
+          isError: true
+        };
+      }
 
       const validated = GetRoomByNumberSchema.parse(params);
       const room = await airtableService.getRoomByNumber(validated.roomNumber);
