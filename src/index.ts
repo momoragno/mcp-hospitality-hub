@@ -66,7 +66,7 @@ function handleError(toolName: string, error: unknown, params: any, span?: any) 
 // Define tools using mcp-use API
 server.tool({
   name: 'check_availability',
-  description: 'Check room availability for specified dates. Returns list of available rooms with capacity, pricing, and amenities. For groups larger than single room capacity, multiple rooms can be combined.',
+  description: '📅 ROOM AVAILABILITY CHECK - Searches for vacant hotel rooms for specific dates. Use when guest wants to book/reserve/check-in or asks about available rooms for dates. Returns rooms with prices. NOT for menu or food questions.',
   inputs: [
     { name: 'checkIn', type: 'string', required: true, description: 'Check-in date (ISO format)' },
     { name: 'checkOut', type: 'string', required: true, description: 'Check-out date (ISO format)' },
@@ -156,7 +156,7 @@ server.tool({
 
 server.tool({
   name: 'create_booking',
-  description: 'Create a new room reservation/booking. Requires guest information and room details. Use after confirming room availability with check_availability tool.',
+  description: '✅ CREATE RESERVATION - Books/reserves a hotel room for a guest. Use after check_availability. NOT for food orders.',
   inputs: [
     { name: 'roomId', type: 'string', required: true, description: 'Room ID from check_availability' },
     { name: 'guestName', type: 'string', required: true, description: 'Guest full name' },
@@ -243,7 +243,7 @@ server.tool({
 
 server.tool({
   name: 'update_booking',
-  description: 'Modify or update an existing booking (change dates, number of guests, special requests, or booking status like check-in/check-out/cancellation).',
+  description: '✏️ MODIFY RESERVATION - Changes an existing room booking (dates, guests, status). NOT for food orders.',
   inputs: [
     { name: 'bookingId', type: 'string', required: true, description: 'Booking ID' },
     { name: 'checkIn', type: 'string', required: false, description: 'New check-in date (ISO format)' },
@@ -306,7 +306,7 @@ server.tool({
 
 server.tool({
   name: 'get_menu',
-  description: 'Get restaurant and room service menu items. Can filter by category (breakfast, lunch, dinner, drinks), dietary preferences (vegetarian, vegan, gluten-free), and allergen exclusions.',
+  description: '🍽️ FOOD & DRINKS MENU ONLY - Shows restaurant menu, meals, food items, beverages. Use when guest asks about: food, eating, menu, meals, breakfast, lunch, dinner, drinks, desserts, snacks, cuisine, dishes, vegetarian, vegan, gluten-free, allergens, what to eat, what to drink, dining options. Returns menu with prices and dietary information. NOT for room details or bookings.',
   inputs: [
     { name: 'category', type: 'string', required: false, description: 'Category filter (breakfast, lunch, dinner, drinks, desserts)' },
     { name: 'vegetarian', type: 'boolean', required: false, description: 'Set to true to show only vegetarian items' },
@@ -400,7 +400,7 @@ server.tool({
 
 server.tool({
   name: 'create_room_service_order',
-  description: 'Create a room service order for food/drinks delivery to a guest room. Use after showing menu with get_menu tool.',
+  description: '🍕 ORDER FOOD/DRINKS - Places room service order for food delivery to guest room. Use AFTER get_menu. For ordering meals/beverages only.',
   inputs: [
     { name: 'roomNumber', type: 'string', required: true, description: 'Room number' },
     { name: 'items', type: 'array', required: true, description: 'Array of menu items to order' },
@@ -501,7 +501,7 @@ server.tool({
 
 server.tool({
   name: 'get_room_info',
-  description: 'Get detailed information about a specific room by room number (capacity, amenities, price, room type, status).',
+  description: '🛏️ ROOM DETAILS ONLY - Gets technical specs about a SPECIFIC PHYSICAL ROOM (room capacity, bed type, amenities like WiFi/TV, room status). Use ONLY when guest asks about a specific room number\'s features, NOT for food/menu/dining questions. Requires exact room number.',
   inputs: [
     { name: 'roomNumber', type: 'string', required: true, description: 'Room number' },
   ],
@@ -561,7 +561,7 @@ server.tool({
 
 server.tool({
   name: 'get_active_booking',
-  description: 'Find who is currently staying in a specific room or get booking details for a room. Returns guest name, check-in/out dates, and booking details.',
+  description: '👤 GUEST LOOKUP - Finds who is staying in a specific room number. Returns guest info and booking details. NOT for menu.',
   inputs: [
     { name: 'roomNumber', type: 'string', required: true, description: 'Room number' },
   ],
