@@ -67,7 +67,7 @@ function handleError(toolName: string, error: unknown, params: any, span?: any) 
 // NOTE: Tool order matters! Most commonly confused tools should be defined first with explicit descriptions.
 
 server.tool({
-  name: 'getMenu',
+  name: 'getFoodMenu',
   description: 'Get restaurant menu with optional filters. Returns food and beverage items with prices, descriptions, and dietary information.',
   inputs: [
     { name: 'category', type: 'string', required: false, description: 'Filter by category: breakfast, lunch, dinner, drinks, or desserts' },
@@ -78,14 +78,14 @@ server.tool({
   ],
   cb: async (params) => {
     const trace = langfuse?.trace({
-      name: 'getMenu',
+      name: 'getFoodMenu',
       metadata: { params },
       tags: ['mcp-tool', 'menu']
     });
     const span = trace?.span({ name: 'execution', startTime: new Date() });
 
     try {
-      console.error(`[${new Date().toISOString()}] getMenu called:`, JSON.stringify(params));
+      console.error(`[${new Date().toISOString()}] getFoodMenu called:`, JSON.stringify(params));
 
       const validated = GetMenuSchema.parse(params);
       const menu = await airtableService.getMenu(validated);
@@ -155,7 +155,7 @@ server.tool({
         }],
       };
     } catch (error) {
-      return handleError('getMenu', error, params, span);
+      return handleError('getFoodMenu', error, params, span);
     }
   },
 });
