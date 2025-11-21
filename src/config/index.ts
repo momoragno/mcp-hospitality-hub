@@ -13,6 +13,11 @@ export const config = {
       roomService: process.env.AIRTABLE_ROOM_SERVICE_TABLE || 'RoomService',
     },
   },
+  langfuse: {
+    publicKey: process.env.LANGFUSE_PUBLIC_KEY || '',
+    secretKey: process.env.LANGFUSE_SECRET_KEY || '',
+    host: process.env.LANGFUSE_HOST || 'https://cloud.langfuse.com',
+  },
   environment: process.env.NODE_ENV || 'development',
 };
 

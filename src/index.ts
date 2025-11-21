@@ -1,8 +1,10 @@
 #!/usr/bin/env node
 
 import { createMCPServer } from 'mcp-use/server';
+import { Langfuse } from 'langfuse';
+import { ZodError } from 'zod';
 import { AirtableService } from './services/airtable.js';
-import { validateConfig } from './config/index.js';
+import { config, validateConfig } from './config/index.js';
 import {
   CheckAvailabilitySchema,
   CreateBookingSchema,
@@ -13,25 +15,58 @@ import {
   GetBookingByRoomSchema,
 } from './tools/index.js';
 
-let airtableService: AirtableService | null = null;
-
-function initializeAirtableService() {
-  if (!airtableService) {
-    validateConfig();
-    airtableService = new AirtableService();
-  }
-  return airtableService;
+// Initialize Langfuse for monitoring (optional)
+let langfuse: Langfuse | null = null;
+if (config.langfuse.publicKey && config.langfuse.secretKey) {
+  langfuse = new Langfuse({
+    publicKey: config.langfuse.publicKey,
+    secretKey: config.langfuse.secretKey,
+    baseUrl: config.langfuse.host,
+  });
+  console.error('✓ Langfuse monitoring enabled');
+} else {
+  console.error('⚠ Langfuse monitoring disabled (no API keys provided)');
 }
+
+// Initialize Airtable service at startup (fail fast if config invalid)
+validateConfig();
+const airtableService = new AirtableService();
+console.error('✓ Airtable service initialized');
 
 const server = createMCPServer('mcp-hospitality-hub', {
   version: '1.0.0',
   description: 'MCP server for AI Receptionist - Airtable integration for hotel management',
 });
 
+// Helper function to handle errors consistently
+function handleError(toolName: string, error: unknown, params: any, span?: any) {
+  console.error(`[${new Date().toISOString()}] Error in ${toolName}:`, error);
+
+  let errorMessage = 'An unexpected error occurred';
+
+  if (error instanceof ZodError) {
+    const issues = error.issues.map(i => `${i.path.join('.')}: ${i.message}`).join('; ');
+    errorMessage = `Validation error: ${issues}`;
+  } else if (error instanceof Error) {
+    errorMessage = `Error: ${error.message}`;
+  }
+
+  // Log to Langfuse
+  span?.end({ level: 'ERROR', statusMessage: errorMessage });
+
+  return {
+    content: [{
+      type: 'text' as const,
+      text: `${errorMessage}\n\nPlease verify your input and try again. If the problem persists, contact support.`
+    }],
+    isError: true
+  };
+}
+
 // Define tools using mcp-use API
 server.tool({
   name: 'check_availability',
-  description: 'USE THIS TOOL when guests ask about: room availability, vacant rooms, free rooms, booking a room, checking in, accommodation, lodging, or need a place to stay for specific dates. Returns ALL available rooms regardless of individual capacity. For groups larger than single room capacity, suggest booking multiple rooms. DO NOT use this for menu, food, or dining questions.',
+  description: 'Check room availability for specified dates. Returns list of available rooms with capacity, pricing, and amenities. For groups larger than single room capacity, multiple rooms can be combined.',
   inputs: [
     { name: 'checkIn', type: 'string', required: true, description: 'Check-in date (ISO format)' },
     { name: 'checkOut', type: 'string', required: true, description: 'Check-out date (ISO format)' },
@@ -39,147 +74,176 @@ server.tool({
     { name: 'roomType', type: 'string', required: false, description: 'Room type filter (optional)' },
   ],
   cb: async (params) => {
-    const service = initializeAirtableService();
-    const validated = CheckAvailabilitySchema.parse(params);
-    const availableRooms = await service.checkAvailability(validated);
+    const trace = langfuse?.trace({
+      name: 'check_availability',
+      metadata: { params },
+      tags: ['mcp-tool', 'availability']
+    });
+    const span = trace?.span({ name: 'execution', startTime: new Date() });
 
-    if (availableRooms.length === 0) {
-      return {
-        content: [
-          {
+    try {
+      console.error(`[${new Date().toISOString()}] check_availability called:`, JSON.stringify(params));
+
+      const validated = CheckAvailabilitySchema.parse(params);
+      const availableRooms = await airtableService.checkAvailability(validated);
+
+      if (availableRooms.length === 0) {
+        span?.end({ output: { success: true, roomCount: 0 } });
+        return {
+          content: [{
             type: 'text',
             text: `No rooms available from ${validated.checkIn} to ${validated.checkOut}${validated.guests ? ` for ${validated.guests} guest(s)` : ''}${validated.roomType ? ` of type ${validated.roomType}` : ''}. Please try different dates or contact reception for alternatives.`,
-          },
-        ],
-      };
-    }
-
-    const checkIn = new Date(validated.checkIn);
-    const checkOut = new Date(validated.checkOut);
-    const nights = Math.ceil((checkOut.getTime() - checkIn.getTime()) / (1000 * 60 * 60 * 24));
-
-    // Sort rooms by capacity (largest first) to help AI suggest optimal combinations
-    const sortedRooms = [...availableRooms].sort((a, b) => b.capacity - a.capacity);
-
-    // Calculate total capacity across all rooms
-    const totalCapacity = sortedRooms.reduce((sum, room) => sum + room.capacity, 0);
-
-    let response = `ROOM AVAILABILITY\n`;
-    response += `Check-in: ${validated.checkIn} | Check-out: ${validated.checkOut} | ${nights} night(s)\n`;
-    if (validated.guests) {
-      response += `Requested Guests: ${validated.guests} | Total capacity across all rooms: ${totalCapacity} guests\n`;
-    }
-    if (validated.roomType) response += `Room Type Filter: ${validated.roomType}\n`;
-    response += `\nFound ${sortedRooms.length} available room${sortedRooms.length === 1 ? '' : 's'}`;
-
-    // Add multi-room note if guest count exceeds individual room capacity
-    if (validated.guests && sortedRooms.length > 0) {
-      const largestRoomCapacity = sortedRooms[0].capacity;
-      if (validated.guests > largestRoomCapacity) {
-        response += ` (multiple rooms recommended for ${validated.guests} guests)`;
+          }],
+        };
       }
-    }
-    response += `:\n\n`;
 
-    sortedRooms.forEach((room, idx) => {
-      const totalPrice = room.price * nights;
-      response += `${idx + 1}. Room ${room.number} - ${room.type}\n`;
-      response += `   Capacity: ${room.capacity} guest${room.capacity > 1 ? 's' : ''}\n`;
-      response += `   Price: €${room.price}/night | Total: €${totalPrice} for ${nights} night(s)\n`;
-      if (room.amenities && room.amenities.length > 0) {
-        response += `   Amenities: ${room.amenities.join(', ')}\n`;
+      const checkIn = new Date(validated.checkIn);
+      const checkOut = new Date(validated.checkOut);
+      const nights = Math.ceil((checkOut.getTime() - checkIn.getTime()) / (1000 * 60 * 60 * 24));
+
+      // Sort rooms by capacity (largest first) to help AI suggest optimal combinations
+      const sortedRooms = [...availableRooms].sort((a, b) => b.capacity - a.capacity);
+      const totalCapacity = sortedRooms.reduce((sum, room) => sum + room.capacity, 0);
+
+      let response = `ROOM AVAILABILITY\n`;
+      response += `Check-in: ${validated.checkIn} | Check-out: ${validated.checkOut} | ${nights} night(s)\n`;
+      if (validated.guests) {
+        response += `Requested Guests: ${validated.guests} | Total capacity across all rooms: ${totalCapacity} guests\n`;
       }
-      response += `   Room ID: ${room.id} (use this ID to create booking)\n\n`;
-    });
+      if (validated.roomType) response += `Room Type Filter: ${validated.roomType}\n`;
+      response += `\nFound ${sortedRooms.length} available room${sortedRooms.length === 1 ? '' : 's'}`;
 
-    if (validated.guests && sortedRooms.length > 1) {
-      response += `\nNote: Multiple rooms can be combined to accommodate ${validated.guests} guests. `;
-      response += `You can book multiple rooms using the create_booking tool for each room separately.`;
-    } else {
-      response += `\nTo book a room, use the create_booking tool with the Room ID.`;
-    }
+      // Add multi-room note if guest count exceeds individual room capacity
+      if (validated.guests && sortedRooms.length > 0) {
+        const largestRoomCapacity = sortedRooms[0].capacity;
+        if (validated.guests > largestRoomCapacity) {
+          response += ` (multiple rooms recommended for ${validated.guests} guests)`;
+        }
+      }
+      response += `:\n\n`;
 
-    return {
-      content: [
-        {
+      sortedRooms.forEach((room, idx) => {
+        const totalPrice = room.price * nights;
+        response += `${idx + 1}. Room ${room.number} - ${room.type}\n`;
+        response += `   Capacity: ${room.capacity} guest${room.capacity > 1 ? 's' : ''}\n`;
+        response += `   Price: €${room.price}/night | Total: €${totalPrice} for ${nights} night(s)\n`;
+        if (room.amenities && room.amenities.length > 0) {
+          response += `   Amenities: ${room.amenities.join(', ')}\n`;
+        }
+        response += `   Room ID: ${room.id} (use this ID to create booking)\n\n`;
+      });
+
+      if (validated.guests && sortedRooms.length > 1) {
+        response += `\nNote: Multiple rooms can be combined to accommodate ${validated.guests} guests. `;
+        response += `You can book multiple rooms using the create_booking tool for each room separately.`;
+      } else {
+        response += `\nTo book a room, use the create_booking tool with the Room ID.`;
+      }
+
+      span?.end({ output: { success: true, roomCount: sortedRooms.length, totalCapacity } });
+
+      return {
+        content: [{
           type: 'text',
           text: response,
-        },
-      ],
-    };
+        }],
+      };
+    } catch (error) {
+      return handleError('check_availability', error, params, span);
+    }
   },
 });
 
 server.tool({
   name: 'create_booking',
-  description: 'USE THIS TOOL when creating a new room reservation/booking after checking availability. Requires guest information and room details. Only use after confirming room availability with check_availability tool. DO NOT use for menu orders or room service.',
+  description: 'Create a new room reservation/booking. Requires guest information and room details. Use after confirming room availability with check_availability tool.',
   inputs: [
-    { name: 'roomId', type: 'string', required: true, description: 'Room number or ID' },
+    { name: 'roomId', type: 'string', required: true, description: 'Room ID from check_availability' },
     { name: 'guestName', type: 'string', required: true, description: 'Guest full name' },
-    { name: 'guestEmail', type: 'string', required: true, description: 'Guest email' },
-    { name: 'guestPhone', type: 'string', required: true, description: 'Guest phone number' },
+    { name: 'guestEmail', type: 'string', required: false, description: 'Guest email' },
+    { name: 'guestPhone', type: 'string', required: false, description: 'Guest phone number' },
     { name: 'checkIn', type: 'string', required: true, description: 'Check-in date (ISO format)' },
     { name: 'checkOut', type: 'string', required: true, description: 'Check-out date (ISO format)' },
     { name: 'guests', type: 'number', required: true, description: 'Number of guests' },
-    { name: 'specialRequests', type: 'string', required: false, description: 'Special requests or notes' },
+    { name: 'specialRequests', type: 'string', required: false, description: 'Special requests' },
   ],
   cb: async (params) => {
-    const service = initializeAirtableService();
-    const validated = CreateBookingSchema.parse(params);
-
-    const room = await service.getRoomByNumber(validated.roomId);
-    if (!room) {
-      throw new Error('Room not found');
-    }
-
-    const checkIn = new Date(validated.checkIn);
-    const checkOut = new Date(validated.checkOut);
-    const nights = Math.ceil((checkOut.getTime() - checkIn.getTime()) / (1000 * 60 * 60 * 24));
-    const totalPrice = room.price * nights;
-
-    const booking = await service.createBooking({
-      roomId: validated.roomId,
-      guestName: validated.guestName,
-      guestEmail: validated.guestEmail,
-      guestPhone: validated.guestPhone,
-      checkIn: validated.checkIn,
-      checkOut: validated.checkOut,
-      guests: validated.guests,
-      totalPrice,
-      status: 'confirmed',
-      specialRequests: validated.specialRequests,
+    const trace = langfuse?.trace({
+      name: 'create_booking',
+      metadata: { params: { ...params, guestEmail: '***', guestPhone: '***' } }, // Hide PII
+      tags: ['mcp-tool', 'booking']
     });
+    const span = trace?.span({ name: 'execution', startTime: new Date() });
 
-    let response = `✓ BOOKING CONFIRMED\n\n`;
-    response += `Booking ID: ${booking.id}\n`;
-    response += `Room Number: ${room.number} (${room.type})\n`;
-    response += `Guest: ${booking.guestName}\n`;
-    if (booking.guestEmail) response += `Email: ${booking.guestEmail}\n`;
-    if (booking.guestPhone) response += `Phone: ${booking.guestPhone}\n`;
-    response += `\nCheck-in: ${booking.checkIn}\n`;
-    response += `Check-out: ${booking.checkOut}\n`;
-    response += `Guests: ${booking.guests}\n`;
-    response += `\nTotal Cost: €${booking.totalPrice} (€${room.price}/night × ${nights} night${nights > 1 ? 's' : ''})\n`;
-    if (booking.specialRequests) {
-      response += `\nSpecial Requests: ${booking.specialRequests}\n`;
-    }
-    response += `\nStatus: ${booking.status.toUpperCase()}\n`;
-    response += `\nThe booking has been successfully created and confirmed. The guest can check in on ${booking.checkIn}.`;
+    try {
+      console.error(`[${new Date().toISOString()}] create_booking called for room:`, params.roomId);
 
-    return {
-      content: [
-        {
+      const validated = CreateBookingSchema.parse(params);
+
+      // Get room details first
+      const room = await airtableService.getRoomByNumber(validated.roomId);
+      if (!room) {
+        span?.end({ level: 'WARNING', output: { success: false, reason: 'room_not_found' } });
+        return {
+          content: [{
+            type: 'text',
+            text: `Error: Room ${validated.roomId} not found in the system. Please verify the room ID from the check_availability results and try again.`
+          }],
+          isError: true
+        };
+      }
+
+      const checkIn = new Date(validated.checkIn);
+      const checkOut = new Date(validated.checkOut);
+      const nights = Math.ceil((checkOut.getTime() - checkIn.getTime()) / (1000 * 60 * 60 * 24));
+      const totalPrice = room.price * nights;
+
+      const booking = await airtableService.createBooking({
+        roomId: room.id,
+        guestName: validated.guestName,
+        guestEmail: validated.guestEmail,
+        guestPhone: validated.guestPhone,
+        checkIn: validated.checkIn,
+        checkOut: validated.checkOut,
+        guests: validated.guests,
+        totalPrice,
+        status: 'confirmed',
+        specialRequests: validated.specialRequests,
+      });
+
+      let response = `✓ BOOKING CONFIRMED\n\n`;
+      response += `Booking ID: ${booking.id}\n`;
+      response += `Room Number: ${room.number} (${room.type})\n`;
+      response += `Guest: ${booking.guestName}\n`;
+      if (booking.guestEmail) response += `Email: ${booking.guestEmail}\n`;
+      if (booking.guestPhone) response += `Phone: ${booking.guestPhone}\n`;
+      response += `\nCheck-in: ${booking.checkIn}\n`;
+      response += `Check-out: ${booking.checkOut}\n`;
+      response += `Guests: ${booking.guests}\n`;
+      response += `\nTotal Cost: €${booking.totalPrice} (€${room.price}/night × ${nights} night${nights > 1 ? 's' : ''})\n`;
+      if (booking.specialRequests) {
+        response += `\nSpecial Requests: ${booking.specialRequests}\n`;
+      }
+      response += `\nStatus: ${booking.status.toUpperCase()}\n`;
+      response += `\nThe booking has been successfully created and confirmed. The guest can check in on ${booking.checkIn}.`;
+
+      span?.end({ output: { success: true, bookingId: booking.id, totalPrice } });
+
+      return {
+        content: [{
           type: 'text',
           text: response,
-        },
-      ],
-    };
+        }],
+      };
+    } catch (error) {
+      return handleError('create_booking', error, params, span);
+    }
   },
 });
 
 server.tool({
   name: 'update_booking',
-  description: 'USE THIS TOOL when guests want to modify, change, or update an existing booking (change dates, number of guests, special requests, or booking status like check-in/check-out/cancellation). DO NOT use for creating new bookings or checking availability.',
+  description: 'Modify or update an existing booking (change dates, number of guests, special requests, or booking status like check-in/check-out/cancellation).',
   inputs: [
     { name: 'bookingId', type: 'string', required: true, description: 'Booking ID' },
     { name: 'checkIn', type: 'string', required: false, description: 'New check-in date (ISO format)' },
@@ -189,48 +253,60 @@ server.tool({
     { name: 'specialRequests', type: 'string', required: false, description: 'Special requests' },
   ],
   cb: async (params) => {
-    const service = initializeAirtableService();
-    const validated = UpdateBookingSchema.parse(params);
-    const booking = await service.updateBooking(validated.bookingId, validated);
-
-    const changes: string[] = [];
-    if (validated.checkIn) changes.push(`Check-in date to ${validated.checkIn}`);
-    if (validated.checkOut) changes.push(`Check-out date to ${validated.checkOut}`);
-    if (validated.guests) changes.push(`Number of guests to ${validated.guests}`);
-    if (validated.status) changes.push(`Status to ${validated.status}`);
-    if (validated.specialRequests) changes.push('Special requests');
-
-    let response = `✓ BOOKING UPDATED\n\n`;
-    response += `Booking ID: ${booking.id}\n`;
-    if (booking.roomNumber) response += `Room: ${booking.roomNumber}\n`;
-    response += `Guest: ${booking.guestName}\n`;
-    response += `\nUpdated fields:\n`;
-    changes.forEach((change, idx) => {
-      response += `  ${idx + 1}. ${change}\n`;
+    const trace = langfuse?.trace({
+      name: 'update_booking',
+      metadata: { params },
+      tags: ['mcp-tool', 'booking']
     });
-    response += `\nCurrent booking details:\n`;
-    response += `Check-in: ${booking.checkIn}\n`;
-    response += `Check-out: ${booking.checkOut}\n`;
-    response += `Guests: ${booking.guests}\n`;
-    response += `Status: ${booking.status.toUpperCase()}\n`;
-    if (booking.totalPrice) response += `Total Price: €${booking.totalPrice}\n`;
-    if (booking.specialRequests) response += `Special Requests: ${booking.specialRequests}\n`;
-    response += `\nThe booking has been successfully updated.`;
+    const span = trace?.span({ name: 'execution', startTime: new Date() });
 
-    return {
-      content: [
-        {
+    try {
+      console.error(`[${new Date().toISOString()}] update_booking called:`, params.bookingId);
+
+      const validated = UpdateBookingSchema.parse(params);
+      const booking = await airtableService.updateBooking(validated.bookingId, validated);
+
+      const changes: string[] = [];
+      if (validated.checkIn) changes.push(`Check-in date to ${validated.checkIn}`);
+      if (validated.checkOut) changes.push(`Check-out date to ${validated.checkOut}`);
+      if (validated.guests) changes.push(`Number of guests to ${validated.guests}`);
+      if (validated.status) changes.push(`Status to ${validated.status}`);
+      if (validated.specialRequests) changes.push('Special requests');
+
+      let response = `✓ BOOKING UPDATED\n\n`;
+      response += `Booking ID: ${booking.id}\n`;
+      if (booking.roomNumber) response += `Room: ${booking.roomNumber}\n`;
+      response += `Guest: ${booking.guestName}\n`;
+      response += `\nUpdated fields:\n`;
+      changes.forEach((change, idx) => {
+        response += `  ${idx + 1}. ${change}\n`;
+      });
+      response += `\nCurrent booking details:\n`;
+      response += `Check-in: ${booking.checkIn}\n`;
+      response += `Check-out: ${booking.checkOut}\n`;
+      response += `Guests: ${booking.guests}\n`;
+      response += `Status: ${booking.status.toUpperCase()}\n`;
+      if (booking.totalPrice) response += `Total Price: €${booking.totalPrice}\n`;
+      if (booking.specialRequests) response += `Special Requests: ${booking.specialRequests}\n`;
+      response += `\nThe booking has been successfully updated.`;
+
+      span?.end({ output: { success: true, changesCount: changes.length } });
+
+      return {
+        content: [{
           type: 'text',
           text: response,
-        },
-      ],
-    };
+        }],
+      };
+    } catch (error) {
+      return handleError('update_booking', error, params, span);
+    }
   },
 });
 
 server.tool({
   name: 'get_menu',
-  description: 'USE THIS TOOL when guests ask about: food, menu, dining, restaurant, meals, breakfast, lunch, dinner, drinks, desserts, snacks, cuisine, dishes, vegetarian options, vegan options, gluten-free options, dietary restrictions, allergens, or what is available to eat/drink. Returns restaurant and room service menu with detailed dietary information. DO NOT use this for room information or bookings.',
+  description: 'Get restaurant and room service menu items. Can filter by category (breakfast, lunch, dinner, drinks), dietary preferences (vegetarian, vegan, gluten-free), and allergen exclusions.',
   inputs: [
     { name: 'category', type: 'string', required: false, description: 'Category filter (breakfast, lunch, dinner, drinks, desserts)' },
     { name: 'vegetarian', type: 'boolean', required: false, description: 'Set to true to show only vegetarian items' },
@@ -239,244 +315,305 @@ server.tool({
     { name: 'excludeAllergens', type: 'array', required: false, description: 'Exclude items with these allergens (e.g., ["dairy", "nuts"])' },
   ],
   cb: async (params) => {
-    const service = initializeAirtableService();
-    const validated = GetMenuSchema.parse(params);
-    const menu = await service.getMenu(validated);
+    const trace = langfuse?.trace({
+      name: 'get_menu',
+      metadata: { params },
+      tags: ['mcp-tool', 'menu']
+    });
+    const span = trace?.span({ name: 'execution', startTime: new Date() });
 
-    if (menu.length === 0) {
-      return {
-        content: [
-          {
+    try {
+      console.error(`[${new Date().toISOString()}] get_menu called:`, JSON.stringify(params));
+
+      const validated = GetMenuSchema.parse(params);
+      const menu = await airtableService.getMenu(validated);
+
+      if (menu.length === 0) {
+        span?.end({ output: { success: true, itemCount: 0 } });
+        return {
+          content: [{
             type: 'text',
             text: 'No menu items found matching your criteria. Please try different filters or contact the kitchen for more options.',
-          },
-        ],
-      };
-    }
+          }],
+        };
+      }
 
-    // Build human-readable response
-    let response = `MENU`;
+      // Build human-readable response
+      let response = `MENU`;
 
-    // Add filter description
-    const filterParts: string[] = [];
-    if (validated.category) filterParts.push(`Category: ${validated.category}`);
-    if (validated.vegetarian) filterParts.push('Vegetarian');
-    if (validated.vegan) filterParts.push('Vegan');
-    if (validated.glutenFree) filterParts.push('Gluten-Free');
-    if (validated.excludeAllergens?.length) filterParts.push(`No ${validated.excludeAllergens.join(', ')}`);
+      // Add filter description
+      const filterParts: string[] = [];
+      if (validated.category) filterParts.push(`Category: ${validated.category}`);
+      if (validated.vegetarian) filterParts.push('Vegetarian');
+      if (validated.vegan) filterParts.push('Vegan');
+      if (validated.glutenFree) filterParts.push('Gluten-Free');
+      if (validated.excludeAllergens?.length) filterParts.push(`No ${validated.excludeAllergens.join(', ')}`);
 
-    if (filterParts.length > 0) {
-      response += ` (Filtered: ${filterParts.join(', ')})`;
-    }
-    response += `\n\nFound ${menu.length} item${menu.length === 1 ? '' : 's'}:\n\n`;
+      if (filterParts.length > 0) {
+        response += ` (Filtered: ${filterParts.join(', ')})`;
+      }
+      response += `\n\nFound ${menu.length} item${menu.length === 1 ? '' : 's'}:\n\n`;
 
-    // Group by category for better readability
-    const categories = [...new Set(menu.map((item) => item.category))];
+      // Group by category for better readability
+      const categories = [...new Set(menu.map((item) => item.category))];
 
-    categories.forEach((category) => {
-      const categoryItems = menu.filter((item) => item.category === category);
-      response += `=== ${category.toUpperCase()} ===\n\n`;
+      categories.forEach((category) => {
+        const categoryItems = menu.filter((item) => item.category === category);
+        response += `=== ${category.toUpperCase()} ===\n\n`;
 
-      categoryItems.forEach((item, idx) => {
-        response += `${idx + 1}. ${item.name} - €${item.price.toFixed(2)}\n`;
-        response += `   ${item.description}\n`;
+        categoryItems.forEach((item, idx) => {
+          response += `${idx + 1}. ${item.name} - €${item.price.toFixed(2)}\n`;
+          response += `   ${item.description}\n`;
 
-        // Add dietary info
-        const dietaryTags: string[] = [];
-        if (item.vegetarian) dietaryTags.push('Vegetarian');
-        if (item.vegan) dietaryTags.push('Vegan');
-        if (item.glutenFree) dietaryTags.push('Gluten-Free');
-        if (dietaryTags.length > 0) {
-          response += `   Dietary: ${dietaryTags.join(', ')}\n`;
-        }
+          // Add dietary info
+          const dietaryTags: string[] = [];
+          if (item.vegetarian) dietaryTags.push('Vegetarian');
+          if (item.vegan) dietaryTags.push('Vegan');
+          if (item.glutenFree) dietaryTags.push('Gluten-Free');
+          if (dietaryTags.length > 0) {
+            response += `   Dietary: ${dietaryTags.join(', ')}\n`;
+          }
 
-        if (item.allergens && item.allergens.length > 0) {
-          response += `   Allergens: ${item.allergens.join(', ')}\n`;
-        }
+          if (item.allergens && item.allergens.length > 0) {
+            response += `   Allergens: ${item.allergens.join(', ')}\n`;
+          }
 
-        response += `   Item ID: ${item.id} (use this ID to place orders)\n\n`;
+          response += `   Item ID: ${item.id} (use this ID to place orders)\n\n`;
+        });
       });
-    });
 
-    response += `\nTo order any item, use the create_room_service_order tool with the Item ID.`;
+      response += `\nTo order any item, use the create_room_service_order tool with the Item ID.`;
 
-    return {
-      content: [
-        {
+      span?.end({ output: { success: true, itemCount: menu.length, categories: categories.length } });
+
+      return {
+        content: [{
           type: 'text',
           text: response,
-        },
-      ],
-    };
+        }],
+      };
+    } catch (error) {
+      return handleError('get_menu', error, params, span);
+    }
   },
 });
 
 server.tool({
   name: 'create_room_service_order',
-  description: 'USE THIS TOOL when guests want to order food or drinks to their room (room service order). Use after showing menu with get_menu tool. Requires room number and menu item IDs. DO NOT use for restaurant reservations or checking availability.',
+  description: 'Create a room service order for food/drinks delivery to a guest room. Use after showing menu with get_menu tool.',
   inputs: [
     { name: 'roomNumber', type: 'string', required: true, description: 'Room number' },
     { name: 'items', type: 'array', required: true, description: 'Array of menu items to order' },
     { name: 'specialInstructions', type: 'string', required: false, description: 'Special instructions for the order' },
   ],
   cb: async (params) => {
-    const service = initializeAirtableService();
-    const validated = CreateRoomServiceOrderSchema.parse(params);
+    const trace = langfuse?.trace({
+      name: 'create_room_service_order',
+      metadata: { params },
+      tags: ['mcp-tool', 'room-service']
+    });
+    const span = trace?.span({ name: 'execution', startTime: new Date() });
 
-    let totalAmount = 0;
-    const itemsWithDetails = [];
+    try {
+      console.error(`[${new Date().toISOString()}] create_room_service_order called for room:`, params.roomNumber);
 
-    for (const item of validated.items) {
-      const menuItem = await service.getMenuItem(item.menuItemId);
-      if (!menuItem) {
-        throw new Error(`Menu item ${item.menuItemId} not found`);
+      const validated = CreateRoomServiceOrderSchema.parse(params);
+
+      // Fetch menu item details and validate
+      const itemsWithDetails: any[] = [];
+      let totalAmount = 0;
+
+      for (const item of validated.items) {
+        const menuItem = await airtableService.getMenuItem(item.menuItemId);
+        if (!menuItem) {
+          span?.end({ level: 'WARNING', output: { success: false, reason: 'menu_item_not_found', itemId: item.menuItemId } });
+          return {
+            content: [{
+              type: 'text',
+              text: `Error: Menu item ${item.menuItemId} not found. Please use get_menu to see available items and use the correct Item ID.`
+            }],
+            isError: true
+          };
+        }
+        if (!menuItem.available) {
+          span?.end({ level: 'WARNING', output: { success: false, reason: 'menu_item_unavailable', itemName: menuItem.name } });
+          return {
+            content: [{
+              type: 'text',
+              text: `Error: Menu item "${menuItem.name}" is currently not available. Please choose a different item from the menu.`
+            }],
+            isError: true
+          };
+        }
+
+        itemsWithDetails.push({
+          menuItemId: item.menuItemId,
+          quantity: item.quantity,
+          name: menuItem.name,
+          price: menuItem.price,
+        });
+
+        totalAmount += menuItem.price * item.quantity;
       }
-      if (!menuItem.available) {
-        throw new Error(`Menu item ${menuItem.name} is not available`);
-      }
 
-      totalAmount += menuItem.price * item.quantity;
-      itemsWithDetails.push({
-        menuItemId: item.menuItemId,
-        quantity: item.quantity,
-        name: menuItem.name,
-        price: menuItem.price,
+      const order = await airtableService.createRoomServiceOrder({
+        roomNumber: validated.roomNumber,
+        items: itemsWithDetails,
+        totalAmount,
+        orderTime: new Date().toISOString(),
+        status: 'pending',
+        specialInstructions: validated.specialInstructions,
       });
-    }
 
-    const order = await service.createRoomServiceOrder({
-      roomNumber: validated.roomNumber,
-      items: itemsWithDetails,
-      totalAmount,
-      orderTime: new Date().toISOString(),
-      status: 'pending',
-      specialInstructions: validated.specialInstructions,
-    });
+      let response = `✓ ROOM SERVICE ORDER PLACED\n\n`;
+      response += `Order ID: ${order.id}\n`;
+      response += `Room Number: ${order.roomNumber}\n`;
+      response += `Order Time: ${new Date(order.orderTime).toLocaleString()}\n`;
+      response += `\nOrdered Items:\n`;
 
-    let response = `✓ ROOM SERVICE ORDER PLACED\n\n`;
-    response += `Order ID: ${order.id}\n`;
-    response += `Room Number: ${order.roomNumber}\n`;
-    response += `Order Time: ${new Date(order.orderTime).toLocaleString()}\n`;
-    response += `\nOrdered Items:\n`;
+      order.items.forEach((item, idx) => {
+        response += `${idx + 1}. ${item.name} × ${item.quantity}\n`;
+        response += `   Price: €${item.price} each | Subtotal: €${(item.price! * item.quantity).toFixed(2)}\n`;
+      });
 
-    order.items.forEach((item, idx) => {
-      response += `${idx + 1}. ${item.name} × ${item.quantity}\n`;
-      response += `   Price: €${item.price} each | Subtotal: €${(item.price! * item.quantity).toFixed(2)}\n`;
-    });
+      response += `\nTotal Amount: €${order.totalAmount.toFixed(2)}\n`;
 
-    response += `\nTotal Amount: €${order.totalAmount.toFixed(2)}\n`;
+      if (order.specialInstructions) {
+        response += `\nSpecial Instructions: ${order.specialInstructions}\n`;
+      }
 
-    if (order.specialInstructions) {
-      response += `\nSpecial Instructions: ${order.specialInstructions}\n`;
-    }
+      response += `\nStatus: ${order.status.toUpperCase()}\n`;
+      response += `\nThe order has been sent to the kitchen. Charges will be added to room ${validated.roomNumber}. Estimated delivery: 30-45 minutes.`;
 
-    response += `\nStatus: ${order.status.toUpperCase()}\n`;
-    response += `\nThe order has been sent to the kitchen. Charges will be added to room ${validated.roomNumber}. Estimated delivery: 30-45 minutes.`;
+      span?.end({ output: { success: true, orderId: order.id, totalAmount, itemCount: order.items.length } });
 
-    return {
-      content: [
-        {
+      return {
+        content: [{
           type: 'text',
           text: response,
-        },
-      ],
-    };
+        }],
+      };
+    } catch (error) {
+      return handleError('create_room_service_order', error, params, span);
+    }
   },
 });
 
 server.tool({
   name: 'get_room_info',
-  description: 'USE THIS TOOL when you need technical details about a specific room (capacity, amenities, price, room type, status) by room number. Use for questions like "what amenities does room 301 have?" or "what type of room is 201?". DO NOT use for checking availability (use check_availability) or menu questions (use get_menu).',
+  description: 'Get detailed information about a specific room by room number (capacity, amenities, price, room type, status).',
   inputs: [
     { name: 'roomNumber', type: 'string', required: true, description: 'Room number' },
   ],
   cb: async (params) => {
-    const service = initializeAirtableService();
-    const validated = GetRoomByNumberSchema.parse(params);
-    const room = await service.getRoomByNumber(validated.roomNumber);
+    const trace = langfuse?.trace({
+      name: 'get_room_info',
+      metadata: { params },
+      tags: ['mcp-tool', 'room']
+    });
+    const span = trace?.span({ name: 'execution', startTime: new Date() });
 
-    if (!room) {
-      return {
-        content: [
-          {
+    try {
+      console.error(`[${new Date().toISOString()}] get_room_info called:`, params.roomNumber);
+
+      const validated = GetRoomByNumberSchema.parse(params);
+      const room = await airtableService.getRoomByNumber(validated.roomNumber);
+
+      if (!room) {
+        span?.end({ level: 'WARNING', output: { success: false, reason: 'room_not_found' } });
+        return {
+          content: [{
             type: 'text',
             text: `Room ${validated.roomNumber} not found in the system. Please verify the room number and try again.`,
-          },
-        ],
-      };
-    }
+          }],
+        };
+      }
 
-    let response = `ROOM INFORMATION\n\n`;
-    response += `Room Number: ${room.number}\n`;
-    response += `Room Type: ${room.type}\n`;
-    response += `Price: €${room.price}/night\n`;
-    response += `Capacity: ${room.capacity} guest${room.capacity > 1 ? 's' : ''}\n`;
-    response += `Status: ${room.status.toUpperCase()}\n`;
+      let response = `ROOM INFORMATION\n\n`;
+      response += `Room Number: ${room.number}\n`;
+      response += `Room Type: ${room.type}\n`;
+      response += `Price: €${room.price}/night\n`;
+      response += `Capacity: ${room.capacity} guest${room.capacity > 1 ? 's' : ''}\n`;
+      response += `Status: ${room.status.toUpperCase()}\n`;
 
-    if (room.amenities && room.amenities.length > 0) {
-      response += `\nAmenities:\n`;
-      room.amenities.forEach((amenity) => {
-        response += `  • ${amenity}\n`;
-      });
-    }
+      if (room.amenities && room.amenities.length > 0) {
+        response += `\nAmenities:\n`;
+        room.amenities.forEach((amenity) => {
+          response += `  • ${amenity}\n`;
+        });
+      }
 
-    response += `\nRoom ID: ${room.id}`;
+      response += `\nRoom ID: ${room.id}`;
 
-    return {
-      content: [
-        {
+      span?.end({ output: { success: true, roomStatus: room.status } });
+
+      return {
+        content: [{
           type: 'text',
           text: response,
-        },
-      ],
-    };
+        }],
+      };
+    } catch (error) {
+      return handleError('get_room_info', error, params, span);
+    }
   },
 });
 
 server.tool({
   name: 'get_active_booking',
-  description: 'USE THIS TOOL when you need to find who is currently staying in a specific room or get booking details for a room. Use for questions like "who is in room 301?" or "what is the booking for room 201?". Returns guest name, check-in/out dates, and booking details. DO NOT use for menu or availability questions.',
+  description: 'Find who is currently staying in a specific room or get booking details for a room. Returns guest name, check-in/out dates, and booking details.',
   inputs: [
     { name: 'roomNumber', type: 'string', required: true, description: 'Room number' },
   ],
   cb: async (params) => {
-    const service = initializeAirtableService();
-    const validated = GetBookingByRoomSchema.parse(params);
-    const booking = await service.getBookingByRoomNumber(validated.roomNumber);
+    const trace = langfuse?.trace({
+      name: 'get_active_booking',
+      metadata: { params },
+      tags: ['mcp-tool', 'booking']
+    });
+    const span = trace?.span({ name: 'execution', startTime: new Date() });
 
-    if (!booking) {
-      return {
-        content: [
-          {
+    try {
+      console.error(`[${new Date().toISOString()}] get_active_booking called:`, params.roomNumber);
+
+      const validated = GetBookingByRoomSchema.parse(params);
+      const booking = await airtableService.getBookingByRoomNumber(validated.roomNumber);
+
+      if (!booking) {
+        span?.end({ output: { success: true, hasBooking: false } });
+        return {
+          content: [{
             type: 'text',
             text: `No active booking found for room ${validated.roomNumber}. The room is either available or the booking has been checked out/cancelled.`,
-          },
-        ],
-      };
-    }
+          }],
+        };
+      }
 
-    let response = `ACTIVE BOOKING FOR ROOM ${validated.roomNumber}\n\n`;
-    response += `Booking ID: ${booking.id}\n`;
-    response += `Guest Name: ${booking.guestName}\n`;
-    if (booking.guestEmail) response += `Email: ${booking.guestEmail}\n`;
-    if (booking.guestPhone) response += `Phone: ${booking.guestPhone}\n`;
-    response += `\nCheck-in: ${booking.checkIn}\n`;
-    response += `Check-out: ${booking.checkOut}\n`;
-    response += `Number of Guests: ${booking.guests}\n`;
-    response += `Status: ${booking.status.toUpperCase()}\n`;
-    if (booking.totalPrice) response += `Total Price: €${booking.totalPrice}\n`;
-    if (booking.specialRequests) {
-      response += `\nSpecial Requests: ${booking.specialRequests}\n`;
-    }
+      let response = `ACTIVE BOOKING FOR ROOM ${validated.roomNumber}\n\n`;
+      response += `Booking ID: ${booking.id}\n`;
+      response += `Guest Name: ${booking.guestName}\n`;
+      if (booking.guestEmail) response += `Email: ${booking.guestEmail}\n`;
+      if (booking.guestPhone) response += `Phone: ${booking.guestPhone}\n`;
+      response += `\nCheck-in: ${booking.checkIn}\n`;
+      response += `Check-out: ${booking.checkOut}\n`;
+      response += `Number of Guests: ${booking.guests}\n`;
+      response += `Status: ${booking.status.toUpperCase()}\n`;
+      if (booking.totalPrice) response += `Total Price: €${booking.totalPrice}\n`;
+      if (booking.specialRequests) {
+        response += `\nSpecial Requests: ${booking.specialRequests}\n`;
+      }
 
-    return {
-      content: [
-        {
+      span?.end({ output: { success: true, hasBooking: true, bookingStatus: booking.status } });
+
+      return {
+        content: [{
           type: 'text',
           text: response,
-        },
-      ],
-    };
+        }],
+      };
+    } catch (error) {
+      return handleError('get_active_booking', error, params, span);
+    }
   },
 });
 
@@ -489,4 +626,17 @@ server.listen(port).then(() => {
 }).catch((error) => {
   console.error('Failed to start server:', error);
   process.exit(1);
+});
+
+// Graceful shutdown - flush Langfuse traces
+process.on('SIGINT', async () => {
+  console.error('\nShutting down gracefully...');
+  await langfuse?.shutdownAsync();
+  process.exit(0);
+});
+
+process.on('SIGTERM', async () => {
+  console.error('\nShutting down gracefully...');
+  await langfuse?.shutdownAsync();
+  process.exit(0);
 });
