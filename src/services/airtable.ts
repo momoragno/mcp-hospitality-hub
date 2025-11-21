@@ -214,33 +214,31 @@ export class AirtableService {
     // Always filter for active bookings
     conditions.push(`OR({Status} = 'confirmed', {Status} = 'checked-in')`);
 
-    // Add search conditions
-    const searchConditions: string[] = [];
-
+    // Add search conditions - each one becomes an AND condition
     if (roomNumber) {
       const room = await this.getRoomByNumber(roomNumber);
       if (room) {
-        searchConditions.push(`{RoomId} = '${room.id}'`);
+        conditions.push(`{RoomId} = '${room.id}'`);
+      } else {
+        // Room doesn't exist, return empty array
+        return [];
       }
     }
 
     if (guestName) {
       // Case-insensitive search using SEARCH function
-      searchConditions.push(`SEARCH(LOWER('${guestName.toLowerCase()}'), LOWER({GuestName}))`);
+      conditions.push(`SEARCH(LOWER('${guestName.toLowerCase()}'), LOWER({GuestName}))`);
     }
 
     if (guestEmail) {
-      searchConditions.push(`SEARCH(LOWER('${guestEmail.toLowerCase()}'), LOWER({GuestEmail}))`);
+      conditions.push(`SEARCH(LOWER('${guestEmail.toLowerCase()}'), LOWER({GuestEmail}))`);
     }
 
     if (guestPhone) {
-      searchConditions.push(`SEARCH('${guestPhone}', {GuestPhone})`);
+      conditions.push(`SEARCH('${guestPhone}', {GuestPhone})`);
     }
 
-    if (searchConditions.length > 0) {
-      conditions.push(`OR(${searchConditions.join(', ')})`);
-    }
-
+    // Combine all conditions with AND (not OR)
     const filterFormula = conditions.length > 1
       ? `AND(${conditions.join(', ')})`
       : conditions[0];
