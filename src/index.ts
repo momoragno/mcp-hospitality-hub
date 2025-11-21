@@ -67,25 +67,25 @@ function handleError(toolName: string, error: unknown, params: any, span?: any) 
 // NOTE: Tool order matters! Most commonly confused tools should be defined first with explicit descriptions.
 
 server.tool({
-  name: 'show_food_menu',
-  description: '🍽️ FOOD/BEVERAGE MENU - USE THIS TOOL when guest asks about: "menu", "food", "eat", "meal", "breakfast", "lunch", "dinner", "drinks", "order food", "room service menu", "what can I eat", "cuisine", "dishes", "vegetarian", "vegan", "gluten-free", "allergens", "hungry", "snacks", "desserts", "dining", "restaurant". Shows complete restaurant menu with prices and dietary info. DO NOT confuse with room availability (use check_availability) or room features (use get_room_info). This tool is ONLY for food/drinks menu.',
+  name: 'getMenu',
+  description: 'Get restaurant menu with optional filters. Returns food and beverage items with prices, descriptions, and dietary information.',
   inputs: [
-    { name: 'category', type: 'string', required: false, description: 'Category filter (breakfast, lunch, dinner, drinks, desserts)' },
-    { name: 'vegetarian', type: 'boolean', required: false, description: 'Set to true to show only vegetarian items' },
-    { name: 'vegan', type: 'boolean', required: false, description: 'Set to true to show only vegan items' },
-    { name: 'glutenFree', type: 'boolean', required: false, description: 'Set to true to show only gluten-free items' },
-    { name: 'excludeAllergens', type: 'array', required: false, description: 'Exclude items with these allergens (e.g., ["dairy", "nuts"])' },
+    { name: 'category', type: 'string', required: false, description: 'Filter by category: breakfast, lunch, dinner, drinks, or desserts' },
+    { name: 'vegetarian', type: 'boolean', required: false, description: 'Show only vegetarian items' },
+    { name: 'vegan', type: 'boolean', required: false, description: 'Show only vegan items' },
+    { name: 'glutenFree', type: 'boolean', required: false, description: 'Show only gluten-free items' },
+    { name: 'excludeAllergens', type: 'array', required: false, description: 'Exclude items containing these allergens' },
   ],
   cb: async (params) => {
     const trace = langfuse?.trace({
-      name: 'show_food_menu',
+      name: 'getMenu',
       metadata: { params },
       tags: ['mcp-tool', 'menu']
     });
     const span = trace?.span({ name: 'execution', startTime: new Date() });
 
     try {
-      console.error(`[${new Date().toISOString()}] show_food_menu called:`, JSON.stringify(params));
+      console.error(`[${new Date().toISOString()}] getMenu called:`, JSON.stringify(params));
 
       const validated = GetMenuSchema.parse(params);
       const menu = await airtableService.getMenu(validated);
@@ -155,14 +155,14 @@ server.tool({
         }],
       };
     } catch (error) {
-      return handleError('show_food_menu', error, params, span);
+      return handleError('getMenu', error, params, span);
     }
   },
 });
 
 server.tool({
-  name: 'check_availability',
-  description: '📅 ROOM AVAILABILITY CHECK - Searches for vacant hotel rooms for specific dates. Use when guest wants to book/reserve/check-in or asks about available rooms for dates. Returns rooms with prices. NOT for menu or food questions (use show_food_menu instead).',
+  name: 'getAvailableRooms',
+  description: 'Check room availability for specified dates. Returns list of available rooms with type, price, capacity, and amenities.',
   inputs: [
     { name: 'checkIn', type: 'string', required: true, description: 'Check-in date (ISO format)' },
     { name: 'checkOut', type: 'string', required: true, description: 'Check-out date (ISO format)' },
@@ -171,14 +171,14 @@ server.tool({
   ],
   cb: async (params) => {
     const trace = langfuse?.trace({
-      name: 'check_availability',
+      name: 'getAvailableRooms',
       metadata: { params },
       tags: ['mcp-tool', 'availability']
     });
     const span = trace?.span({ name: 'execution', startTime: new Date() });
 
     try {
-      console.error(`[${new Date().toISOString()}] check_availability called:`, JSON.stringify(params));
+      console.error(`[${new Date().toISOString()}] getAvailableRooms called:`, JSON.stringify(params));
 
       const validated = CheckAvailabilitySchema.parse(params);
       const availableRooms = await airtableService.checkAvailability(validated);
@@ -245,14 +245,14 @@ server.tool({
         }],
       };
     } catch (error) {
-      return handleError('check_availability', error, params, span);
+      return handleError('getAvailableRooms', error, params, span);
     }
   },
 });
 
 server.tool({
-  name: 'create_booking',
-  description: '✅ CREATE RESERVATION - Books/reserves a hotel room for a guest. Use after check_availability. NOT for food orders.',
+  name: 'addBooking',
+  description: 'Create a new room booking with guest details and date range. Returns booking confirmation with ID and total price.',
   inputs: [
     { name: 'roomId', type: 'string', required: true, description: 'Room ID from check_availability' },
     { name: 'guestName', type: 'string', required: true, description: 'Guest full name' },
@@ -265,14 +265,14 @@ server.tool({
   ],
   cb: async (params) => {
     const trace = langfuse?.trace({
-      name: 'create_booking',
+      name: 'addBooking',
       metadata: { params: { ...params, guestEmail: '***', guestPhone: '***' } }, // Hide PII
       tags: ['mcp-tool', 'booking']
     });
     const span = trace?.span({ name: 'execution', startTime: new Date() });
 
     try {
-      console.error(`[${new Date().toISOString()}] create_booking called for room:`, params.roomId);
+      console.error(`[${new Date().toISOString()}] addBooking called for room:`, params.roomId);
 
       const validated = CreateBookingSchema.parse(params);
 
@@ -332,14 +332,14 @@ server.tool({
         }],
       };
     } catch (error) {
-      return handleError('create_booking', error, params, span);
+      return handleError('addBooking', error, params, span);
     }
   },
 });
 
 server.tool({
-  name: 'update_booking',
-  description: '✏️ MODIFY RESERVATION - Changes an existing room booking (dates, guests, status). NOT for food orders.',
+  name: 'updateBooking',
+  description: 'Update an existing booking with new dates, guest count, or status. Returns updated booking details.',
   inputs: [
     { name: 'bookingId', type: 'string', required: true, description: 'Booking ID' },
     { name: 'checkIn', type: 'string', required: false, description: 'New check-in date (ISO format)' },
@@ -350,14 +350,14 @@ server.tool({
   ],
   cb: async (params) => {
     const trace = langfuse?.trace({
-      name: 'update_booking',
+      name: 'updateBooking',
       metadata: { params },
       tags: ['mcp-tool', 'booking']
     });
     const span = trace?.span({ name: 'execution', startTime: new Date() });
 
     try {
-      console.error(`[${new Date().toISOString()}] update_booking called:`, params.bookingId);
+      console.error(`[${new Date().toISOString()}] updateBooking called:`, params.bookingId);
 
       const validated = UpdateBookingSchema.parse(params);
       const booking = await airtableService.updateBooking(validated.bookingId, validated);
@@ -395,14 +395,14 @@ server.tool({
         }],
       };
     } catch (error) {
-      return handleError('update_booking', error, params, span);
+      return handleError('updateBooking', error, params, span);
     }
   },
 });
 
 server.tool({
-  name: 'create_room_service_order',
-  description: '🍕 ORDER FOOD/DRINKS - Places room service order for food delivery to guest room. Use AFTER show_food_menu. For ordering meals/beverages only.',
+  name: 'addRoomServiceOrder',
+  description: 'Place a room service order for food delivery to guest room. Use after getMenu to obtain menu item IDs.',
   inputs: [
     { name: 'roomNumber', type: 'string', required: true, description: 'Room number' },
     { name: 'items', type: 'array', required: true, description: 'Array of menu items to order' },
@@ -410,14 +410,14 @@ server.tool({
   ],
   cb: async (params) => {
     const trace = langfuse?.trace({
-      name: 'create_room_service_order',
+      name: 'addRoomServiceOrder',
       metadata: { params },
       tags: ['mcp-tool', 'room-service']
     });
     const span = trace?.span({ name: 'execution', startTime: new Date() });
 
     try {
-      console.error(`[${new Date().toISOString()}] create_room_service_order called for room:`, params.roomNumber);
+      console.error(`[${new Date().toISOString()}] addRoomServiceOrder called for room:`, params.roomNumber);
 
       const validated = CreateRoomServiceOrderSchema.parse(params);
 
@@ -432,7 +432,7 @@ server.tool({
           return {
             content: [{
               type: 'text',
-              text: `Error: Menu item ${item.menuItemId} not found. Please use show_food_menu to see available items and use the correct Item ID.`
+              text: `Error: Menu item ${item.menuItemId} not found. Please use getMenu to see available items and use the correct Item ID.`
             }],
             isError: true
           };
@@ -496,39 +496,27 @@ server.tool({
         }],
       };
     } catch (error) {
-      return handleError('create_room_service_order', error, params, span);
+      return handleError('addRoomServiceOrder', error, params, span);
     }
   },
 });
 
 server.tool({
-  name: 'get_room_info',
-  description: '🛏️ PHYSICAL ROOM SPECS - Gets ONLY technical room features for a NUMERIC room number (e.g., "101", "305"). Shows: bed type, room capacity, WiFi, TV, bathroom amenities, room status. Use ONLY when guest provides a SPECIFIC ROOM NUMBER and asks about that room\'s physical features. DO NOT USE if guest says "menu" - use get_menu instead. DO NOT USE for food/dining questions. Requires numeric room number like "101" or "305".',
+  name: 'getRoomInfo',
+  description: 'Get detailed information about a specific room by room number. Returns room type, price, capacity, amenities, and current status.',
   inputs: [
     { name: 'roomNumber', type: 'string', required: true, description: 'Numeric room number (e.g., "101", "305", NOT "menu" or other words)' },
   ],
   cb: async (params) => {
     const trace = langfuse?.trace({
-      name: 'get_room_info',
+      name: 'getRoomInfo',
       metadata: { params },
       tags: ['mcp-tool', 'room']
     });
     const span = trace?.span({ name: 'execution', startTime: new Date() });
 
     try {
-      console.error(`[${new Date().toISOString()}] get_room_info called:`, params.roomNumber);
-
-      // Validate that roomNumber is actually a room number, not a word like "menu"
-      if (params.roomNumber && /^(menu|food|eat|breakfast|lunch|dinner|drinks|meal|order)$/i.test(params.roomNumber)) {
-        span?.end({ level: 'ERROR', output: { success: false, reason: 'invalid_room_number', hint: 'use_get_menu_instead' } });
-        return {
-          content: [{
-            type: 'text',
-            text: `Error: This tool is for room information only. To see the food menu, please use the get_menu tool instead. If you need room information, provide a numeric room number like "101" or "305".`
-          }],
-          isError: true
-        };
-      }
+      console.error(`[${new Date().toISOString()}] getRoomInfo called:`, params.roomNumber);
 
       const validated = GetRoomByNumberSchema.parse(params);
       const room = await airtableService.getRoomByNumber(validated.roomNumber);
@@ -568,27 +556,27 @@ server.tool({
         }],
       };
     } catch (error) {
-      return handleError('get_room_info', error, params, span);
+      return handleError('getRoomInfo', error, params, span);
     }
   },
 });
 
 server.tool({
-  name: 'get_active_booking',
-  description: '👤 GUEST LOOKUP - Finds who is staying in a specific room number. Returns guest info and booking details. NOT for menu.',
+  name: 'getActiveBooking',
+  description: 'Get active booking information for a specific room number. Returns guest details and booking dates.',
   inputs: [
     { name: 'roomNumber', type: 'string', required: true, description: 'Room number' },
   ],
   cb: async (params) => {
     const trace = langfuse?.trace({
-      name: 'get_active_booking',
+      name: 'getActiveBooking',
       metadata: { params },
       tags: ['mcp-tool', 'booking']
     });
     const span = trace?.span({ name: 'execution', startTime: new Date() });
 
     try {
-      console.error(`[${new Date().toISOString()}] get_active_booking called:`, params.roomNumber);
+      console.error(`[${new Date().toISOString()}] getActiveBooking called:`, params.roomNumber);
 
       const validated = GetBookingByRoomSchema.parse(params);
       const booking = await airtableService.getBookingByRoomNumber(validated.roomNumber);
@@ -626,7 +614,7 @@ server.tool({
         }],
       };
     } catch (error) {
-      return handleError('get_active_booking', error, params, span);
+      return handleError('getActiveBooking', error, params, span);
     }
   },
 });
