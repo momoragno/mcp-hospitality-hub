@@ -23,6 +23,7 @@
   "license": "MIT",
   "dependencies": {
     "airtable": "^0.12.2",
+    "axios": "^1.13.2",
     "dotenv": "^16.4.5",
     "langfuse": "^3.38.6",
     "mcp-use": "^1.3.3",

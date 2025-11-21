@@ -8,8 +8,29 @@ import type {
   AvailabilityQuery,
 } from '../types/index.js';
 
+/**
+ * ========================================
+ * AIRTABLE SERVICE
+ * ========================================
+ *
+ * This service handles all interactions with Airtable database.
+ * It provides methods for managing rooms, bookings, menu items, and room service orders.
+ *
+ * Structure:
+ * 1. Constructor & Initialization
+ * 2. Room Operations
+ * 3. Booking Operations
+ * 4. Menu Operations
+ * 5. Room Service Operations
+ * 6. Helper Methods
+ * 7. Data Mapping Functions
+ */
 export class AirtableService {
   private base: Airtable.Base;
+
+  // ========================================
+  // 1. CONSTRUCTOR & INITIALIZATION
+  // ========================================
 
   constructor() {
     Airtable.configure({
@@ -18,7 +39,13 @@ export class AirtableService {
     this.base = Airtable.base(config.airtable.baseId);
   }
 
-  // ROOMS MANAGEMENT
+  // ========================================
+  // 2. ROOM OPERATIONS
+  // ========================================
+
+  /**
+   * Get all rooms from Airtable
+   */
   async getRooms(): Promise<Room[]> {
     const records = await this.base(config.airtable.tables.rooms)
       .select()
@@ -27,6 +54,9 @@ export class AirtableService {
     return records.map((record) => this.mapRecordToRoom(record));
   }
 
+  /**
+   * Get a specific room by its room number
+   */
   async getRoomByNumber(roomNumber: string): Promise<Room | null> {
     const records = await this.base(config.airtable.tables.rooms)
       .select({
@@ -38,31 +68,33 @@ export class AirtableService {
     return records.length > 0 ? this.mapRecordToRoom(records[0]) : null;
   }
 
-  // AVAILABILITY CHECKING
+  /**
+   * Check room availability based on date range and criteria
+   */
   async checkAvailability(query: AvailabilityQuery): Promise<Room[]> {
     const { checkIn, checkOut, guests, roomType } = query;
 
-    // Get all rooms
+    // Step 1: Get all rooms from the database
     const allRooms = await this.getRooms();
 
-    // Get existing bookings that overlap with requested dates
+    // Step 2: Get bookings that overlap with requested dates
     const overlappingBookings = await this.getOverlappingBookings(
       checkIn,
       checkOut
     );
 
-    // Get room IDs that are booked
+    // Step 3: Create a set of booked room IDs for fast lookup
     const bookedRoomIds = new Set(
       overlappingBookings.map((b) => b.roomId)
     );
 
-    // Filter available rooms
+    // Step 4: Filter available rooms (not occupied and not booked)
     let availableRooms = allRooms.filter(
       (room) =>
         room.status === 'available' && !bookedRoomIds.has(room.id)
     );
 
-    // Apply room type filter if specified
+    // Step 5: Apply room type filter if specified
     if (roomType) {
       availableRooms = availableRooms.filter(
         (room) => room.type.toLowerCase() === roomType.toLowerCase()
@@ -77,37 +109,13 @@ export class AirtableService {
     return availableRooms;
   }
 
-  private async getOverlappingBookings(
-    checkIn: string,
-    checkOut: string
-  ): Promise<Booking[]> {
-    // Get all active bookings
-    const formula = `OR({Status} = 'confirmed', {Status} = 'checked-in')`;
+  // ========================================
+  // 3. BOOKING OPERATIONS
+  // ========================================
 
-    const records = await this.base(config.airtable.tables.bookings)
-      .select({
-        filterByFormula: formula,
-      })
-      .all();
-
-    const bookings = records.map((record) => this.mapRecordToBooking(record));
-
-    // Filter overlapping bookings in memory
-    const requestCheckIn = new Date(checkIn);
-    const requestCheckOut = new Date(checkOut);
-
-    return bookings.filter((booking) => {
-      const bookingCheckIn = new Date(booking.checkIn);
-      const bookingCheckOut = new Date(booking.checkOut);
-
-      // Check if bookings overlap
-      return !(
-        bookingCheckOut <= requestCheckIn || bookingCheckIn >= requestCheckOut
-      );
-    });
-  }
-
-  // BOOKING MANAGEMENT
+  /**
+   * Create a new booking in Airtable
+   */
   async createBooking(booking: Booking): Promise<Booking> {
     const record = await this.base(config.airtable.tables.bookings).create({
       RoomId: booking.roomId,
@@ -125,6 +133,9 @@ export class AirtableService {
     return this.mapRecordToBooking(record);
   }
 
+  /**
+   * Update an existing booking
+   */
   async updateBooking(
     bookingId: string,
     updates: Partial<Booking>
@@ -151,6 +162,9 @@ export class AirtableService {
     return this.mapRecordToBooking(record);
   }
 
+  /**
+   * Get active booking for a specific room number
+   */
   async getBookingByRoomNumber(roomNumber: string): Promise<Booking | null> {
     // First get the room to get its ID
     const room = await this.getRoomByNumber(roomNumber);
@@ -166,7 +180,13 @@ export class AirtableService {
     return records.length > 0 ? this.mapRecordToBooking(records[0]) : null;
   }
 
-  // MENU MANAGEMENT
+  // ========================================
+  // 4. MENU OPERATIONS
+  // ========================================
+
+  /**
+   * Get menu items with optional filters
+   */
   async getMenu(filters?: import('../types/index.js').MenuFilters): Promise<MenuItem[]> {
     const selectOptions: any = {};
 
@@ -216,6 +236,9 @@ export class AirtableService {
     return items;
   }
 
+  /**
+   * Get a specific menu item by ID
+   */
   async getMenuItem(itemId: string): Promise<MenuItem | null> {
     try {
       const record = await this.base(config.airtable.tables.menu).find(itemId);
@@ -225,7 +248,13 @@ export class AirtableService {
     }
   }
 
-  // ROOM SERVICE MANAGEMENT
+  // ========================================
+  // 5. ROOM SERVICE OPERATIONS
+  // ========================================
+
+  /**
+   * Create a new room service order
+   */
   async createRoomServiceOrder(
     order: RoomServiceOrder
   ): Promise<RoomServiceOrder> {
@@ -253,7 +282,52 @@ export class AirtableService {
     return this.mapRecordToRoomServiceOrder(record);
   }
 
-  // MAPPING FUNCTIONS
+  // ========================================
+  // 6. HELPER METHODS
+  // ========================================
+
+  /**
+   * Get bookings that overlap with a given date range
+   * Used internally for availability checking
+   */
+  private async getOverlappingBookings(
+    checkIn: string,
+    checkOut: string
+  ): Promise<Booking[]> {
+    // Get all active bookings
+    const formula = `OR({Status} = 'confirmed', {Status} = 'checked-in')`;
+
+    const records = await this.base(config.airtable.tables.bookings)
+      .select({
+        filterByFormula: formula,
+      })
+      .all();
+
+    const bookings = records.map((record) => this.mapRecordToBooking(record));
+
+    // Filter overlapping bookings in memory
+    const requestCheckIn = new Date(checkIn);
+    const requestCheckOut = new Date(checkOut);
+
+    return bookings.filter((booking) => {
+      const bookingCheckIn = new Date(booking.checkIn);
+      const bookingCheckOut = new Date(booking.checkOut);
+
+      // Check if bookings overlap
+      return !(
+        bookingCheckOut <= requestCheckIn || bookingCheckIn >= requestCheckOut
+      );
+    });
+  }
+
+  // ========================================
+  // 7. DATA MAPPING FUNCTIONS
+  // ========================================
+  // These functions convert Airtable records to our TypeScript types
+
+  /**
+   * Map Airtable record to Room object
+   */
   private mapRecordToRoom(record: Records<FieldSet>[0]): Room {
     return {
       id: record.id,
@@ -266,6 +340,9 @@ export class AirtableService {
     };
   }
 
+  /**
+   * Map Airtable record to Booking object
+   */
   private mapRecordToBooking(record: Records<FieldSet>[0]): Booking {
     return {
       id: record.id,
@@ -283,6 +360,9 @@ export class AirtableService {
     };
   }
 
+  /**
+   * Map Airtable record to MenuItem object
+   */
   private mapRecordToMenuItem(record: Records<FieldSet>[0]): MenuItem {
     return {
       id: record.id,
@@ -298,6 +378,9 @@ export class AirtableService {
     };
   }
 
+  /**
+   * Map Airtable record to RoomServiceOrder object
+   */
   private mapRecordToRoomServiceOrder(
     record: Records<FieldSet>[0]
   ): RoomServiceOrder {
