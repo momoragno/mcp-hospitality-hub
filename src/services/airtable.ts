@@ -62,18 +62,17 @@ export class AirtableService {
         room.status === 'available' && !bookedRoomIds.has(room.id)
     );
 
-    // Apply additional filters
-    if (guests) {
-      availableRooms = availableRooms.filter(
-        (room) => room.capacity >= guests
-      );
-    }
-
+    // Apply room type filter if specified
     if (roomType) {
       availableRooms = availableRooms.filter(
         (room) => room.type.toLowerCase() === roomType.toLowerCase()
       );
     }
+
+    // Note: We intentionally do NOT filter by guest capacity here.
+    // This allows the AI to suggest multi-room combinations for larger groups.
+    // All available rooms are returned, and the AI agent can intelligently
+    // combine them based on guest count and preferences.
 
     return availableRooms;
   }

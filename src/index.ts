@@ -31,11 +31,11 @@ const server = createMCPServer('mcp-hospitality-hub', {
 // Define tools using mcp-use API
 server.tool({
   name: 'check_availability',
-  description: 'Check room availability for given dates',
+  description: 'Check room availability for given dates. Returns ALL available rooms regardless of individual capacity. For groups larger than single room capacity, you should suggest booking multiple rooms to accommodate all guests. The response includes total capacity across all rooms and recommendations for multi-room bookings.',
   inputs: [
     { name: 'checkIn', type: 'string', required: true, description: 'Check-in date (ISO format)' },
     { name: 'checkOut', type: 'string', required: true, description: 'Check-out date (ISO format)' },
-    { name: 'guests', type: 'number', required: false, description: 'Number of guests' },
+    { name: 'guests', type: 'number', required: false, description: 'Number of guests (tool returns all available rooms; combine multiple rooms for larger groups)' },
     { name: 'roomType', type: 'string', required: false, description: 'Room type filter (optional)' },
   ],
   cb: async (params) => {
@@ -58,24 +58,46 @@ server.tool({
     const checkOut = new Date(validated.checkOut);
     const nights = Math.ceil((checkOut.getTime() - checkIn.getTime()) / (1000 * 60 * 60 * 24));
 
+    // Sort rooms by capacity (largest first) to help AI suggest optimal combinations
+    const sortedRooms = [...availableRooms].sort((a, b) => b.capacity - a.capacity);
+
+    // Calculate total capacity across all rooms
+    const totalCapacity = sortedRooms.reduce((sum, room) => sum + room.capacity, 0);
+
     let response = `ROOM AVAILABILITY\n`;
     response += `Check-in: ${validated.checkIn} | Check-out: ${validated.checkOut} | ${nights} night(s)\n`;
-    if (validated.guests) response += `Guests: ${validated.guests}\n`;
-    if (validated.roomType) response += `Room Type: ${validated.roomType}\n`;
-    response += `\nFound ${availableRooms.length} available room${availableRooms.length === 1 ? '' : 's'}:\n\n`;
+    if (validated.guests) {
+      response += `Requested Guests: ${validated.guests} | Total capacity across all rooms: ${totalCapacity} guests\n`;
+    }
+    if (validated.roomType) response += `Room Type Filter: ${validated.roomType}\n`;
+    response += `\nFound ${sortedRooms.length} available room${sortedRooms.length === 1 ? '' : 's'}`;
 
-    availableRooms.forEach((room, idx) => {
+    // Add multi-room note if guest count exceeds individual room capacity
+    if (validated.guests && sortedRooms.length > 0) {
+      const largestRoomCapacity = sortedRooms[0].capacity;
+      if (validated.guests > largestRoomCapacity) {
+        response += ` (multiple rooms recommended for ${validated.guests} guests)`;
+      }
+    }
+    response += `:\n\n`;
+
+    sortedRooms.forEach((room, idx) => {
       const totalPrice = room.price * nights;
       response += `${idx + 1}. Room ${room.number} - ${room.type}\n`;
+      response += `   Capacity: ${room.capacity} guest${room.capacity > 1 ? 's' : ''}\n`;
       response += `   Price: €${room.price}/night | Total: €${totalPrice} for ${nights} night(s)\n`;
-      response += `   Capacity: ${room.capacity} guest(s)\n`;
       if (room.amenities && room.amenities.length > 0) {
         response += `   Amenities: ${room.amenities.join(', ')}\n`;
       }
       response += `   Room ID: ${room.id} (use this ID to create booking)\n\n`;
     });
 
-    response += `\nTo book a room, use the create_booking tool with the Room ID.`;
+    if (validated.guests && sortedRooms.length > 1) {
+      response += `\nNote: Multiple rooms can be combined to accommodate ${validated.guests} guests. `;
+      response += `You can book multiple rooms using the create_booking tool for each room separately.`;
+    } else {
+      response += `\nTo book a room, use the create_booking tool with the Room ID.`;
+    }
 
     return {
       content: [
