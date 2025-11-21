@@ -64,5 +64,14 @@ export const GetRoomByNumberSchema = z.object({
 
 // Schema for: getActiveBooking
 export const GetBookingByRoomSchema = z.object({
-  roomNumber: z.string().describe('Room number to find active booking'),
-});
+  roomNumber: z.string().optional().describe('Room number to find active booking'),
+  guestName: z.string().optional().describe('Guest name to search for (partial match supported)'),
+  guestEmail: z.string().optional().describe('Guest email to search for (partial match supported)'),
+  guestPhone: z.string().optional().describe('Guest phone number to search for'),
+  bookingId: z.string().optional().describe('Booking ID for direct lookup'),
+}).refine(
+  (data) => data.roomNumber || data.guestName || data.guestEmail || data.guestPhone || data.bookingId,
+  {
+    message: 'At least one search parameter must be provided (roomNumber, guestName, guestEmail, guestPhone, or bookingId)',
+  }
+);

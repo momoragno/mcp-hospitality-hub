@@ -180,6 +180,80 @@ export class AirtableService {
     return records.length > 0 ? this.mapRecordToBooking(records[0]) : null;
   }
 
+  /**
+   * Search for active bookings by multiple criteria
+   * Searches by room number, guest name, email, phone, or booking ID
+   */
+  async searchActiveBookings(query: {
+    roomNumber?: string;
+    guestName?: string;
+    guestEmail?: string;
+    guestPhone?: string;
+    bookingId?: string;
+  }): Promise<Booking[]> {
+    const { roomNumber, guestName, guestEmail, guestPhone, bookingId } = query;
+
+    // If bookingId is provided, search by ID directly
+    if (bookingId) {
+      try {
+        const record = await this.base(config.airtable.tables.bookings).find(bookingId);
+        const booking = this.mapRecordToBooking(record);
+        // Check if booking is active
+        if (booking.status === 'confirmed' || booking.status === 'checked-in') {
+          return [booking];
+        }
+        return [];
+      } catch (error) {
+        return [];
+      }
+    }
+
+    // Build filter formula for Airtable
+    const conditions: string[] = [];
+
+    // Always filter for active bookings
+    conditions.push(`OR({Status} = 'confirmed', {Status} = 'checked-in')`);
+
+    // Add search conditions
+    const searchConditions: string[] = [];
+
+    if (roomNumber) {
+      const room = await this.getRoomByNumber(roomNumber);
+      if (room) {
+        searchConditions.push(`{RoomId} = '${room.id}'`);
+      }
+    }
+
+    if (guestName) {
+      // Case-insensitive search using SEARCH function
+      searchConditions.push(`SEARCH(LOWER('${guestName.toLowerCase()}'), LOWER({GuestName}))`);
+    }
+
+    if (guestEmail) {
+      searchConditions.push(`SEARCH(LOWER('${guestEmail.toLowerCase()}'), LOWER({GuestEmail}))`);
+    }
+
+    if (guestPhone) {
+      searchConditions.push(`SEARCH('${guestPhone}', {GuestPhone})`);
+    }
+
+    if (searchConditions.length > 0) {
+      conditions.push(`OR(${searchConditions.join(', ')})`);
+    }
+
+    const filterFormula = conditions.length > 1
+      ? `AND(${conditions.join(', ')})`
+      : conditions[0];
+
+    const records = await this.base(config.airtable.tables.bookings)
+      .select({
+        filterByFormula: filterFormula,
+      })
+      .all();
+
+    return records.map((record) => this.mapRecordToBooking(record));
+  }
+
   // ========================================
   // 4. MENU OPERATIONS
   // ========================================

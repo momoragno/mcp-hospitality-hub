@@ -565,49 +565,75 @@ server.tool({
 
 server.tool({
   name: 'getActiveBooking',
-  description: 'Get active booking information for a specific room number. Returns guest details and booking dates.',
+  description: 'Search for active bookings by room number, guest name, email, phone, or booking ID. Returns guest details and booking dates. Supports partial matching for names and emails.',
   inputs: [
-    { name: 'roomNumber', type: 'string', required: true, description: 'Room number' },
+    { name: 'roomNumber', type: 'string', required: false, description: 'Room number to search' },
+    { name: 'guestName', type: 'string', required: false, description: 'Guest name to search (partial match supported)' },
+    { name: 'guestEmail', type: 'string', required: false, description: 'Guest email to search (partial match supported)' },
+    { name: 'guestPhone', type: 'string', required: false, description: 'Guest phone number to search' },
+    { name: 'bookingId', type: 'string', required: false, description: 'Booking ID for direct lookup' },
   ],
   cb: async (params) => {
     const trace = langfuse?.trace({
       name: 'getActiveBooking',
-      metadata: { params },
+      metadata: { params: { ...params, guestEmail: params.guestEmail ? '***' : undefined, guestPhone: params.guestPhone ? '***' : undefined } },
       tags: ['mcp-tool', 'booking']
     });
     const span = trace?.span({ name: 'execution', startTime: new Date() });
 
     try {
-      console.error(`[${new Date().toISOString()}] getActiveBooking called:`, params.roomNumber);
+      console.error(`[${new Date().toISOString()}] getActiveBooking called with:`, JSON.stringify({
+        ...params,
+        guestEmail: params.guestEmail ? '***' : undefined,
+        guestPhone: params.guestPhone ? '***' : undefined
+      }));
 
       const validated = GetBookingByRoomSchema.parse(params);
-      const booking = await airtableService.getBookingByRoomNumber(validated.roomNumber);
+      const bookings = await airtableService.searchActiveBookings(validated);
 
-      if (!booking) {
-        span?.end({ output: { success: true, hasBooking: false } });
+      if (bookings.length === 0) {
+        // Build search criteria description
+        const searchCriteria: string[] = [];
+        if (validated.roomNumber) searchCriteria.push(`room ${validated.roomNumber}`);
+        if (validated.guestName) searchCriteria.push(`guest name "${validated.guestName}"`);
+        if (validated.guestEmail) searchCriteria.push(`email "${validated.guestEmail}"`);
+        if (validated.guestPhone) searchCriteria.push(`phone "${validated.guestPhone}"`);
+        if (validated.bookingId) searchCriteria.push(`booking ID "${validated.bookingId}"`);
+
+        const criteriaText = searchCriteria.join(', ');
+
+        span?.end({ output: { success: true, bookingCount: 0 } });
         return {
           content: [{
             type: 'text',
-            text: `No active booking found for room ${validated.roomNumber}. The room is either available or the booking has been checked out/cancelled.`,
+            text: `No active bookings found matching ${criteriaText}. The booking may have been checked out, cancelled, or doesn't exist.`,
           }],
         };
       }
 
-      let response = `ACTIVE BOOKING FOR ROOM ${validated.roomNumber}\n\n`;
-      response += `Booking ID: ${booking.id}\n`;
-      response += `Guest Name: ${booking.guestName}\n`;
-      if (booking.guestEmail) response += `Email: ${booking.guestEmail}\n`;
-      if (booking.guestPhone) response += `Phone: ${booking.guestPhone}\n`;
-      response += `\nCheck-in: ${booking.checkIn}\n`;
-      response += `Check-out: ${booking.checkOut}\n`;
-      response += `Number of Guests: ${booking.guests}\n`;
-      response += `Status: ${booking.status.toUpperCase()}\n`;
-      if (booking.totalPrice) response += `Total Price: €${booking.totalPrice}\n`;
-      if (booking.specialRequests) {
-        response += `\nSpecial Requests: ${booking.specialRequests}\n`;
-      }
+      let response = bookings.length === 1
+        ? `ACTIVE BOOKING FOUND\n\n`
+        : `ACTIVE BOOKINGS FOUND (${bookings.length})\n\n`;
 
-      span?.end({ output: { success: true, hasBooking: true, bookingStatus: booking.status } });
+      bookings.forEach((booking, index) => {
+        if (index > 0) response += '\n---\n\n';
+
+        response += `Booking ID: ${booking.id}\n`;
+        response += `Room Number: ${booking.roomNumber}\n`;
+        response += `Guest Name: ${booking.guestName}\n`;
+        if (booking.guestEmail) response += `Email: ${booking.guestEmail}\n`;
+        if (booking.guestPhone) response += `Phone: ${booking.guestPhone}\n`;
+        response += `\nCheck-in: ${booking.checkIn}\n`;
+        response += `Check-out: ${booking.checkOut}\n`;
+        response += `Number of Guests: ${booking.guests}\n`;
+        response += `Status: ${booking.status.toUpperCase()}\n`;
+        if (booking.totalPrice) response += `Total Price: €${booking.totalPrice}\n`;
+        if (booking.specialRequests) {
+          response += `\nSpecial Requests: ${booking.specialRequests}\n`;
+        }
+      });
+
+      span?.end({ output: { success: true, bookingCount: bookings.length } });
 
       return {
         content: [{
