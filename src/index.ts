@@ -31,7 +31,7 @@ const server = createMCPServer('mcp-hospitality-hub', {
 // Define tools using mcp-use API
 server.tool({
   name: 'check_availability',
-  description: 'Check room availability for given dates. Returns ALL available rooms regardless of individual capacity. For groups larger than single room capacity, you should suggest booking multiple rooms to accommodate all guests. The response includes total capacity across all rooms and recommendations for multi-room bookings.',
+  description: 'USE THIS TOOL when guests ask about: room availability, vacant rooms, free rooms, booking a room, checking in, accommodation, lodging, or need a place to stay for specific dates. Returns ALL available rooms regardless of individual capacity. For groups larger than single room capacity, suggest booking multiple rooms. DO NOT use this for menu, food, or dining questions.',
   inputs: [
     { name: 'checkIn', type: 'string', required: true, description: 'Check-in date (ISO format)' },
     { name: 'checkOut', type: 'string', required: true, description: 'Check-out date (ISO format)' },
@@ -112,7 +112,7 @@ server.tool({
 
 server.tool({
   name: 'create_booking',
-  description: 'Create a new booking',
+  description: 'USE THIS TOOL when creating a new room reservation/booking after checking availability. Requires guest information and room details. Only use after confirming room availability with check_availability tool. DO NOT use for menu orders or room service.',
   inputs: [
     { name: 'roomId', type: 'string', required: true, description: 'Room number or ID' },
     { name: 'guestName', type: 'string', required: true, description: 'Guest full name' },
@@ -179,7 +179,7 @@ server.tool({
 
 server.tool({
   name: 'update_booking',
-  description: 'Update an existing booking (dates, guests, special requests, or status)',
+  description: 'USE THIS TOOL when guests want to modify, change, or update an existing booking (change dates, number of guests, special requests, or booking status like check-in/check-out/cancellation). DO NOT use for creating new bookings or checking availability.',
   inputs: [
     { name: 'bookingId', type: 'string', required: true, description: 'Booking ID' },
     { name: 'checkIn', type: 'string', required: false, description: 'New check-in date (ISO format)' },
@@ -230,13 +230,13 @@ server.tool({
 
 server.tool({
   name: 'get_menu',
-  description: 'Get menu items with optional filters for category, dietary preferences (vegetarian, vegan, gluten-free), and allergen exclusions',
+  description: 'USE THIS TOOL when guests ask about: food, menu, dining, restaurant, meals, breakfast, lunch, dinner, drinks, desserts, snacks, cuisine, dishes, vegetarian options, vegan options, gluten-free options, dietary restrictions, allergens, or what is available to eat/drink. Returns restaurant and room service menu with detailed dietary information. DO NOT use this for room information or bookings.',
   inputs: [
     { name: 'category', type: 'string', required: false, description: 'Category filter (breakfast, lunch, dinner, drinks, desserts)' },
-    { name: 'vegetarian', type: 'boolean', required: false, description: 'Show only vegetarian items' },
-    { name: 'vegan', type: 'boolean', required: false, description: 'Show only vegan items' },
-    { name: 'glutenFree', type: 'boolean', required: false, description: 'Show only gluten-free items' },
-    { name: 'excludeAllergens', type: 'array', required: false, description: 'Exclude items with these allergens' },
+    { name: 'vegetarian', type: 'boolean', required: false, description: 'Set to true to show only vegetarian items' },
+    { name: 'vegan', type: 'boolean', required: false, description: 'Set to true to show only vegan items' },
+    { name: 'glutenFree', type: 'boolean', required: false, description: 'Set to true to show only gluten-free items' },
+    { name: 'excludeAllergens', type: 'array', required: false, description: 'Exclude items with these allergens (e.g., ["dairy", "nuts"])' },
   ],
   cb: async (params) => {
     const service = initializeAirtableService();
@@ -313,7 +313,7 @@ server.tool({
 
 server.tool({
   name: 'create_room_service_order',
-  description: 'Create a room service order',
+  description: 'USE THIS TOOL when guests want to order food or drinks to their room (room service order). Use after showing menu with get_menu tool. Requires room number and menu item IDs. DO NOT use for restaurant reservations or checking availability.',
   inputs: [
     { name: 'roomNumber', type: 'string', required: true, description: 'Room number' },
     { name: 'items', type: 'array', required: true, description: 'Array of menu items to order' },
@@ -386,7 +386,7 @@ server.tool({
 
 server.tool({
   name: 'get_room_info',
-  description: 'Get detailed information about a specific room by room number',
+  description: 'USE THIS TOOL when you need technical details about a specific room (capacity, amenities, price, room type, status) by room number. Use for questions like "what amenities does room 301 have?" or "what type of room is 201?". DO NOT use for checking availability (use check_availability) or menu questions (use get_menu).',
   inputs: [
     { name: 'roomNumber', type: 'string', required: true, description: 'Room number' },
   ],
@@ -435,7 +435,7 @@ server.tool({
 
 server.tool({
   name: 'get_active_booking',
-  description: 'Get active booking information for a specific room number',
+  description: 'USE THIS TOOL when you need to find who is currently staying in a specific room or get booking details for a room. Use for questions like "who is in room 301?" or "what is the booking for room 201?". Returns guest name, check-in/out dates, and booking details. DO NOT use for menu or availability questions.',
   inputs: [
     { name: 'roomNumber', type: 'string', required: true, description: 'Room number' },
   ],
