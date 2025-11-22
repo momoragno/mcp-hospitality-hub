@@ -115,6 +115,7 @@ export class AirtableService {
   async createBooking(booking: Booking): Promise<Booking> {
     const record = await this.base(config.airtable.tables.bookings).create({
       RoomId: booking.roomId,
+      RoomNumber: booking.roomNumber || '',
       GuestName: booking.guestName,
       GuestEmail: booking.guestEmail || '',
       GuestPhone: booking.guestPhone || '',
@@ -139,6 +140,7 @@ export class AirtableService {
     const updateFields: FieldSet = {};
 
     if (updates.roomId) updateFields.RoomId = updates.roomId;
+    if (updates.roomNumber) updateFields.RoomNumber = updates.roomNumber;
     if (updates.guestName) updateFields.GuestName = updates.guestName;
     if (updates.guestEmail) updateFields.GuestEmail = updates.guestEmail;
     if (updates.guestPhone) updateFields.GuestPhone = updates.guestPhone;

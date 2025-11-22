@@ -202,6 +202,7 @@ server.tool({
 
       const booking = await airtableService.createBooking({
         roomId: room.id,
+        roomNumber: room.number,
         guestName: validated.guestName,
         guestEmail: validated.guestEmail,
         guestPhone: validated.guestPhone,

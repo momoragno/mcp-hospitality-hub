@@ -61,7 +61,9 @@ Clicca su "+" accanto a Rooms → Rinomina in "Bookings"
 |--------|------------|-----------|------------|---------|----------|--------|------------|--------|
 | rec123... | 202 | Mario Rossi | mario@example.com | 20/11/2024 | 23/11/2024 | 2 | 360 | checked-in |
 
-> **Nota:** RoomId sarà l'ID del record dalla tabella Rooms. Puoi copiarlo dal record.
+> **Nota:**
+> - **RoomId** sarà l'ID del record dalla tabella Rooms (es. "rec123...")
+> - **RoomNumber** viene popolato automaticamente dal sistema quando si crea una prenotazione tramite `addBooking` tool (es. "202"). Non è necessario inserirlo manualmente.
 
 ## 3. Ottieni le Credenziali API
 

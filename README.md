@@ -53,8 +53,8 @@ Il tuo Airtable Base dovrebbe avere queste tabelle:
 - `Status` (Single select) - available, occupied, maintenance
 
 ### Tabella "Bookings"
-- `RoomId` (Single line text) - ID della camera
-- `RoomNumber` (Single line text) - Numero camera
+- `RoomId` (Single line text) - ID della camera (Airtable record ID)
+- `RoomNumber` (Single line text) - Numero camera (popolato automaticamente dal sistema)
 - `GuestName` (Single line text) - Nome ospite
 - `GuestEmail` (Email)
 - `GuestPhone` (Phone)
