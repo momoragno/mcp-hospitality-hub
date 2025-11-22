@@ -144,53 +144,13 @@ Understanding guest types helps AI provide appropriate recommendations and use c
 - ❌ NEVER use `getAvailableRooms` for existing guests
 
 **Common Requests**:
-- Room service orders → `getMenu` + `addRoomServiceOrder`
 - Booking information → `getActiveBooking`
 - Room features → `getRoomInfo`
 - Change dates → `updateBooking`
 
 ---
 
-## Dietary Preferences & Menu Filters
-
-When using `getMenu` tool, these filters are available:
-
-### Boolean Filters
-- `vegetarian: true` - Vegetarian items only
-- `vegan: true` - Vegan items only
-- `glutenFree: true` - Gluten-free items only
-
-### Category Filters
-- `category: "breakfast"` - Breakfast menu
-- `category: "lunch"` - Lunch menu
-- `category: "dinner"` - Dinner menu
-- `category: "drinks"` - Beverages
-- `category: "desserts"` - Desserts
-
-### Allergen Exclusions
-Use `excludeAllergens` array to filter out items containing specific allergens:
-- Common allergens: `["dairy", "nuts", "gluten", "shellfish", "eggs", "soy", "fish"]`
-
-**Examples**:
-```json
-// Vegetarian dinner options
-{ "category": "dinner", "vegetarian": true }
-
-// Vegan breakfast with no nuts
-{ "category": "breakfast", "vegan": true, "excludeAllergens": ["nuts"] }
-
-// Gluten-free lunch
-{ "category": "lunch", "glutenFree": true }
-```
-
----
-
 ## Facilities & Services
-
-### Food & Beverage
-- **Living Kitchen**: Restaurant (breakfast, lunch, dinner)
-- **Kindred Spirits Bar**: Rooftop bar with cocktails, wine, beer
-- **Room Service**: Available via `addRoomServiceOrder` tool
 
 ### Workspace & Coworking
 - **Rooftop Coworking**: Shared workspace with WiFi, desk space
@@ -286,7 +246,6 @@ Use this to recommend rooms based on guest needs:
 2. **Room capacity**: Only Loft XXL can accommodate 3 guests
 3. **No twin beds**: Bootstrap has bunks; all others have double/king beds
 4. **Existing guests**: When guest mentions room number → use `getActiveBooking`, NOT `getAvailableRooms`
-5. **Food requests**: Use `getMenu` with appropriate dietary filters
 
 ---
 

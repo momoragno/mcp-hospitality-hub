@@ -1,57 +1,13 @@
 # MCP Tools Reference for AI Agent
 
 ## Overview
-This document describes the 7 MCP tools available for the Zoku Amsterdam hospitality system. These tools interact with Airtable to provide real-time room availability, bookings, menu items, and room service orders.
+This document describes the 5 MCP tools available for the Hotel X hospitality system. These tools interact with Airtable to provide real-time room availability and booking management.
 
 ---
 
 ## Tool Catalog
 
-### 1. getMenu
-**Purpose**: Retrieve restaurant and room service menu items with optional dietary filters
-
-**When to use**:
-- Guest asks about food, dining, or menu
-- Guest mentions dietary preferences (vegetarian, vegan, gluten-free)
-- Guest wants to order food
-- Guest asks about breakfast, lunch, dinner, or drinks
-
-**Parameters**:
-```
-{
-  category?: string,        // "breakfast", "lunch", "dinner", "drinks", "desserts"
-  vegetarian?: boolean,     // Show only vegetarian items
-  vegan?: boolean,          // Show only vegan items
-  glutenFree?: boolean,     // Show only gluten-free items
-  excludeAllergens?: string[] // e.g., ["dairy", "nuts", "gluten", "shellfish"]
-}
-```
-
-**Returns**: List of menu items with:
-- Item name, description, price
-- Category
-- Dietary tags (vegetarian, vegan, gluten-free)
-- Allergen information
-- Item ID (needed for placing orders)
-
-**Examples**:
-```
-Guest: "What's on the dinner menu?"
-→ getMenu({ category: "dinner" })
-
-Guest: "I'm vegetarian"
-→ getMenu({ vegetarian: true })
-
-Guest: "I want vegetarian dinner options"
-→ getMenu({ category: "dinner", vegetarian: true })
-
-Guest: "I'm allergic to nuts"
-→ getMenu({ excludeAllergens: ["nuts"] })
-```
-
----
-
-### 2. getActiveBooking
+### 1. getActiveBooking
 **Purpose**: Search for EXISTING guest bookings by various criteria
 
 **When to use**:
@@ -78,8 +34,8 @@ Guest: "I'm allergic to nuts"
 - Guest name, email, phone
 - Check-in and check-out dates
 - Number of guests
-- Status
 - Total price
+- Status
 - Special requests
 
 **Examples**:
@@ -87,18 +43,20 @@ Guest: "I'm allergic to nuts"
 Guest: "I'm in room 204"
 → getActiveBooking({ roomNumber: "204" })
 
-Guest: "Can you look up my reservation? Name is John Smith"
+Guest: "Check my reservation for John Smith"
 → getActiveBooking({ guestName: "John Smith" })
 
-Guest: "Check booking for john@example.com"
-→ getActiveBooking({ guestEmail: "john@example.com" })
+Guest: "My booking confirmation is BOOK123"
+→ getActiveBooking({ bookingId: "BOOK123" })
 ```
 
-**IMPORTANT**: This tool is ONLY for existing bookings. Do NOT use this for checking availability for new bookings.
+**CRITICAL**:
+- ❌ NEVER use this for checking availability for NEW bookings (use getAvailableRooms instead)
+- ✅ ALWAYS use when guest mentions they're currently staying or have an existing reservation
 
 ---
 
-### 3. getAvailableRooms
+### 2. getAvailableRooms
 **Purpose**: Check room availability for NEW bookings on specific dates
 
 **When to use**:
@@ -134,354 +92,288 @@ Guest: "Looking for a room next weekend for 2 people"
 ```
 
 **CRITICAL**:
-- ❌ NEVER call this tool when guest mentions food, menu, or dining
 - ❌ NEVER auto-generate dates that guest didn't explicitly mention
 - ❌ NEVER use this for existing guests (room number already mentioned)
 - ✅ ONLY use when guest provides specific check-in/out dates for NEW booking
 
 ---
 
-### 4. addBooking
+### 3. addBooking
 **Purpose**: Create a new room booking reservation
 
 **When to use**:
 - After guest selects a room from getAvailableRooms results
 - Guest confirms they want to book a specific room
+- Ready to finalize a new reservation
+
+**Required workflow**:
+1. Call `getAvailableRooms` first
+2. Guest selects a room
+3. Collect guest information
+4. Call `addBooking` with roomId from step 1
 
 **Parameters**:
 ```
 {
   roomId: string,          // Room ID from getAvailableRooms - REQUIRED
   guestName: string,       // Guest full name - REQUIRED
-  guestEmail?: string,     // Guest email (optional but recommended)
-  guestPhone?: string,     // Guest phone number (optional)
+  guestEmail?: string,     // Guest email (recommended)
+  guestPhone?: string,     // Guest phone number
   checkIn: string,         // ISO date (YYYY-MM-DD) - REQUIRED
   checkOut: string,        // ISO date (YYYY-MM-DD) - REQUIRED
   guests: number,          // Number of guests - REQUIRED
-  specialRequests?: string // Special requests or notes (optional)
+  specialRequests?: string // Any special requests or notes
 }
 ```
 
 **Returns**: Booking confirmation with:
-- Booking ID
-- Room number and type
-- Guest details
-- Check-in/check-out dates
-- Total price
+- Booking ID (confirmation number)
+- Room details
+- Guest information
+- Dates and pricing
 - Status (confirmed)
 
-**Example**:
+**Examples**:
 ```
-After getAvailableRooms shows room options:
-Guest: "I'll take the Zoku Loft"
+After showing availability and guest selects Loft:
+
 → addBooking({
-    roomId: "rec123abc",
+    roomId: "recAbc123",
     guestName: "John Smith",
     guestEmail: "john@example.com",
+    guestPhone: "+1234567890",
     checkIn: "2025-12-01",
     checkOut: "2025-12-03",
-    guests: 1,
-    specialRequests: "Late check-in after 22:00"
+    guests: 2,
+    specialRequests: "Early check-in if possible"
   })
 ```
 
+**CRITICAL**:
+- ❌ NEVER call this without calling getAvailableRooms first
+- ✅ ALWAYS verify the roomId comes from getAvailableRooms results
+- ✅ ALWAYS confirm all details with guest before finalizing
+
 ---
 
-### 5. addRoomServiceOrder
-**Purpose**: Place a food/drink order for delivery to a guest's room
+### 4. updateBooking
+**Purpose**: Modify an existing booking (dates, guests, status, requests)
 
 **When to use**:
-- After guest selects items from getMenu
-- Guest confirms they want to order
-- Guest is ready to place room service order
+- Guest wants to change check-in or check-out dates
+- Guest wants to modify number of guests
+- Guest wants to change/add special requests
+- Staff needs to update booking status (checked-in, checked-out, cancelled)
 
 **Parameters**:
 ```
 {
-  roomNumber: string,           // Room number for delivery - REQUIRED
-  items: Array<{                // Array of ordered items - REQUIRED
-    menuItemId: string,         // Item ID from getMenu results
-    quantity: number            // Quantity to order
-  }>,
-  specialInstructions?: string  // Special instructions (optional)
+  bookingId: string,       // Booking ID - REQUIRED
+  checkIn?: string,        // New check-in date (ISO format)
+  checkOut?: string,       // New check-out date (ISO format)
+  guests?: number,         // New number of guests
+  status?: string,         // "confirmed", "checked-in", "checked-out", "cancelled"
+  specialRequests?: string // Updated special requests
 }
 ```
 
-**Returns**: Order confirmation with:
-- Order ID
-- Room number
-- Ordered items with quantities and prices
-- Total amount
-- Order time
-- Status (pending)
-- Estimated delivery time
+**Returns**: Updated booking details with:
+- All current booking information
+- List of fields that were changed
+- New total price if dates changed
 
-**Example**:
+**Examples**:
 ```
-After showing menu via getMenu:
-Guest: "I'll have the pasta and a salad"
-→ addRoomServiceOrder({
-    roomNumber: "204",
-    items: [
-      { menuItemId: "recMenuItem1", quantity: 1 },
-      { menuItemId: "recMenuItem2", quantity: 1 }
-    ],
-    specialInstructions: "No onions in the salad"
-  })
+Guest: "I want to extend my checkout to December 5th"
+→ updateBooking({ bookingId: "BOOK123", checkOut: "2025-12-05" })
+
+Guest: "Change my booking to 3 people instead of 2"
+→ updateBooking({ bookingId: "BOOK123", guests: 3 })
+
+Staff: "Mark room 204 as checked in"
+→ updateBooking({ bookingId: "BOOK123", status: "checked-in" })
 ```
+
+**CRITICAL**:
+- ✅ ALWAYS confirm changes with guest before applying
+- ✅ Inform guest if price changes due to date modifications
 
 ---
 
-### 6. getRoomInfo
+### 5. getRoomInfo
 **Purpose**: Get detailed information about a specific room by room number
 
 **When to use**:
-- Guest asks about a specific room's features
-- Guest wants to know room amenities
-- Guest asks about pricing for a specific room type
+- Guest asks about room features or amenities
+- Guest wants to know pricing for a specific room
+- Guest asks "tell me about room 204"
+- Providing details about room types
 
 **Parameters**:
 ```
 {
-  roomNumber: string       // Room number - REQUIRED
+  roomNumber: string       // Numeric room number - REQUIRED (e.g., "101", "305")
 }
 ```
 
 **Returns**: Room details including:
 - Room number and type
 - Price per night
-- Capacity
-- Amenities
+- Capacity (max guests)
+- Amenities list
 - Current status (available, occupied, maintenance)
 - Room ID
 
-**Example**:
+**Examples**:
 ```
-Guest: "Tell me about room 305"
-→ getRoomInfo({ roomNumber: "305" })
-```
+Guest: "What amenities does room 204 have?"
+→ getRoomInfo({ roomNumber: "204" })
 
----
-
-### 7. updateBooking
-**Purpose**: Modify an existing booking
-
-**When to use**:
-- Guest wants to change check-in or check-out dates
-- Guest needs to update number of guests
-- Checking guest in/out (change status)
-- Updating special requests
-
-**Parameters**:
-```
-{
-  bookingId: string,       // Booking ID - REQUIRED
-  checkIn?: string,        // New check-in date (optional)
-  checkOut?: string,       // New check-out date (optional)
-  guests?: number,         // New number of guests (optional)
-  status?: string,         // New status: "confirmed", "checked-in", "checked-out", "cancelled"
-  specialRequests?: string // Updated special requests (optional)
-}
+Guest: "How much is a Loft room?"
+→ getRoomInfo({ roomNumber: "101" }) // if 101 is a Loft
 ```
 
-**Returns**: Updated booking details
-
-**Example**:
-```
-Guest: "I need to extend my checkout by one day"
-→ updateBooking({
-    bookingId: "recBooking123",
-    checkOut: "2025-12-04"
-  })
-```
+**CRITICAL**:
+- ❌ NEVER confuse room number with other concepts (like "menu")
+- ✅ Room number should be numeric (e.g., "101", "305", NOT "menu" or other words)
 
 ---
 
 ## Tool Selection Decision Tree
 
 ```
-┌─────────────────────────────────────────┐
-│ What does the guest want?              │
-└─────────────────────────────────────────┘
-                  │
-                  ├─► Food/Menu/Dining/Dietary preferences?
-                  │   └─► getMenu
-                  │
-                  ├─► "I'm in room X" OR "my reservation"?
-                  │   └─► getActiveBooking
-                  │       (They're already checked in)
-                  │
-                  ├─► Provides specific check-in/out DATES?
-                  │   └─► getAvailableRooms
-                  │       └─► If they select a room: addBooking
-                  │
-                  ├─► Wants to ORDER food (after seeing menu)?
-                  │   └─► addRoomServiceOrder
-                  │
-                  ├─► Asks about specific room features?
-                  │   └─► getRoomInfo
-                  │
-                  ├─► Wants to CHANGE existing booking?
-                  │   └─► updateBooking
-                  │
-                  └─► Unclear or ambiguous?
-                      └─► ASK CLARIFYING QUESTIONS
+Did guest mention room number ("I'm in room X")?
+├─ YES → Use getActiveBooking
+│   └─ Guest is EXISTING, not looking for NEW booking
+└─ NO
+   │
+   Did guest provide CHECK-IN/CHECK-OUT DATES?
+   ├─ YES → Use getAvailableRooms (NEW booking)
+   │   └─ Then addBooking if they select room
+   └─ NO → Ask clarifying questions
 ```
 
 ---
 
-## Common Mistakes & How to Avoid Them
+## Common Mistakes to Avoid
 
-### ❌ Mistake 1: Calling getAvailableRooms for food requests
+### ❌ Mistake 1: Using getAvailableRooms for existing guests
+
 ```
-Guest: "I want vegetarian dinner"
+Guest: "I'm in room 204"
 ❌ WRONG: getAvailableRooms({ ... })
-✅ CORRECT: getMenu({ category: "dinner", vegetarian: true })
+✅ CORRECT: getActiveBooking({ roomNumber: "204" })
 ```
-**Why it happens**: AI sees "want" and thinks "booking"
-**Fix**: Check if request is food-related BEFORE checking for booking intent
+
+**Fix**: Check if request is from existing guest BEFORE checking for new booking intent
 
 ---
 
-### ❌ Mistake 2: Calling getAvailableRooms for existing guests
-```
-Guest: "Hi, I'm in room 204. I need dinner"
-❌ WRONG: getAvailableRooms({ ... })
-✅ CORRECT:
-   1. getActiveBooking({ roomNumber: "204" }) to verify
-   2. getMenu() to show options
-   3. addRoomServiceOrder({ roomNumber: "204", ... })
-```
-**Why it happens**: AI generates dates automatically
-**Fix**: If guest mentions room number, they're already checked in. Use getActiveBooking.
+### ❌ Mistake 2: Auto-generating dates
 
----
-
-### ❌ Mistake 3: Auto-generating dates
 ```
-Guest: "Do you have rooms available?"
+Guest: "Do you have rooms?"
 ❌ WRONG: getAvailableRooms({ checkIn: TODAY, checkOut: TOMORROW })
-✅ CORRECT: Ask "What dates are you looking for?"
+✅ CORRECT: "What dates are you looking for?"
 ```
-**Why it happens**: AI tries to be helpful by filling missing parameters
-**Fix**: NEVER infer dates. Always ask guest to provide them explicitly.
+
+**Fix**: Always ask for dates explicitly before calling getAvailableRooms
 
 ---
 
-### ❌ Mistake 4: Using getActiveBooking for new bookings
+### ❌ Mistake 3: Not calling getAvailableRooms before addBooking
+
 ```
-Guest: "I want to book a room for next week"
-❌ WRONG: getActiveBooking({ ... })
-✅ CORRECT: Ask for dates, then getAvailableRooms
+Guest: "Book me a room for Dec 1-3"
+❌ WRONG: Directly call addBooking({ ... })
+✅ CORRECT:
+   1. getAvailableRooms({ checkIn: "2025-12-01", checkOut: "2025-12-03" })
+   2. Present options
+   3. Guest selects
+   4. addBooking({ roomId: "...", ... })
 ```
-**Why it happens**: "booking" keyword triggers wrong tool
-**Fix**: getActiveBooking is ONLY for EXISTING bookings. New bookings use getAvailableRooms.
 
 ---
 
-### ❌ Mistake 5: Confusing room number with room type
-```
-Guest: "I'm in room 204, what room type is this?"
-❌ WRONG: getAvailableRooms({ roomType: "204" })
-✅ CORRECT: getRoomInfo({ roomNumber: "204" })
-```
-**Why it happens**: Misunderstanding parameter types
-**Fix**: Room numbers are strings like "204". Room types are "Zoku Loft", "Bootstrap Room", etc.
+## Critical Rules Summary
 
----
-
-## Context Management Rules
-
-### Rule 1: Track Guest Status
-```
+### Rule 1: Existing Guest Detection
 When guest says "I'm in room X":
-1. Store: currentRoomNumber = X
-2. Mark: isExistingGuest = true
-3. Call: getActiveBooking({ roomNumber: X })
-4. From this point: Guest wants SERVICES (food, info), NOT new booking
-```
+1. Store in context: `currentRoomNumber = X`
+2. Mark: `isExistingGuest = true`
+3. Call: `getActiveBooking({ roomNumber: X })`
+4. From this point: Guest wants SERVICES, NOT new booking
 
-### Rule 2: Food Keywords → Menu Tool
-```
-Keywords indicating menu request:
-- food, menu, dining, eat, order
-- breakfast, lunch, dinner, drinks
-- vegetarian, vegan, gluten-free
-- hungry, meal, cuisine
+### Rule 2: New Booking Process
+Guest provides dates:
+1. Confirm dates explicitly
+2. Call: `getAvailableRooms({ checkIn: "...", checkOut: "..." })`
+3. Present options
+4. Collect guest info
+5. Call: `addBooking({ ... })`
 
-Action: Always use getMenu, NEVER getAvailableRooms
+### Rule 3: When Ambiguous → Ask First
 ```
+Guest: "What's available?"
+→ "Are you asking about rooms for a future stay or general information?"
 
-### Rule 3: Date Keywords → Availability Tool
-```
-Keywords indicating availability request:
-- "for [specific dates]"
-- "check in [date]"
-- "December 1st to 3rd"
-- "next weekend"
-
-Action: Use getAvailableRooms (for NEW bookings only)
-```
-
-### Rule 4: When in Doubt, Ask
-```
-Ambiguous requests:
-- "Do you have vegetarian?" → "Are you asking about our menu or room preferences?"
-- "Can I book?" → "Are you looking for a room or ordering food?"
-- "What's available?" → "Are you asking about rooms or menu items?"
+Guest: "Next Friday"
+→ "Just to confirm, that would be December 6th? And checking out which day?"
 ```
 
 ---
 
-## Quick Reference Cheat Sheet
+## Quick Reference Table
 
-| Guest Says | Tool to Use | Parameters |
-|------------|-------------|------------|
-| "Show me dinner menu" | getMenu | `{ category: "dinner" }` |
-| "I'm vegetarian" | getMenu | `{ vegetarian: true }` |
+| Scenario | Correct Tool | Parameters |
+|----------|--------------|------------|
 | "I'm in room 204" | getActiveBooking | `{ roomNumber: "204" }` |
 | "Rooms for Dec 1-3?" | getAvailableRooms | `{ checkIn: "2025-12-01", checkOut: "2025-12-03" }` |
-| "Order pasta to my room" | addRoomServiceOrder | `{ roomNumber: "...", items: [...] }` |
-| "What's in room 305?" | getRoomInfo | `{ roomNumber: "305" }` |
-| "Change my checkout date" | updateBooking | `{ bookingId: "...", checkOut: "..." }` |
-| "Book the Loft" | addBooking | `{ roomId: "...", ... }` |
+| "Book the Loft" (after availability check) | addBooking | `{ roomId: "...", guestName: "...", ... }` |
+| "Extend my stay to Dec 5" | updateBooking | `{ bookingId: "...", checkOut: "2025-12-05" }` |
+| "What's in room 204?" | getRoomInfo | `{ roomNumber: "204" }` |
+| "Find my booking" | getActiveBooking | `{ guestName: "..." }` or `{ guestEmail: "..." }` |
 
 ---
 
-## Testing Your Tool Selection
+## Test Scenarios
 
-Use these test scenarios to validate correct tool usage:
+Use these to validate implementation:
 
-1. **In-room dining**: Guest in room 204 orders vegetarian dinner
-   - ✅ getActiveBooking({ roomNumber: "204" })
-   - ✅ getMenu({ vegetarian: true })
-   - ✅ addRoomServiceOrder({ roomNumber: "204", items: [...] })
-   - ❌ Should NOT call getAvailableRooms
-
-2. **New booking**: Guest wants room for specific dates
-   - ✅ getAvailableRooms({ checkIn: "...", checkOut: "..." })
+### 1. New booking flow
+```
+Input: Guest wants room for Dec 1-3
+Expected sequence:
+   - ✅ getAvailableRooms({ checkIn: "2025-12-01", checkOut: "2025-12-03" })
    - ✅ addBooking({ roomId: "...", ... })
-   - ❌ Should NOT call getActiveBooking first
+Never:
+   - ❌ getActiveBooking
+```
 
-3. **Ambiguous "vegetarian"**: Guest just says "vegetarian"
-   - ✅ Ask clarifying question
-   - ❌ Should NOT call getAvailableRooms automatically
+### 2. Existing guest
+```
+Input: "I'm in room 204, I need to extend"
+Expected sequence:
+   - ✅ getActiveBooking({ roomNumber: "204" })
+   - ✅ updateBooking({ bookingId: "...", checkOut: "..." })
+Never:
+   - ❌ getAvailableRooms
+```
 
-4. **Noise complaint**: Guest complains about room 203
-   - ✅ getActiveBooking({ roomNumber: "203" })
-   - ❌ Should NOT call getAvailableRooms
+### 3. Room information
+```
+Input: "Tell me about room 204"
+Expected:
+   - ✅ getRoomInfo({ roomNumber: "204" })
+```
 
 ---
 
-## Summary
+## Key Takeaways
 
-**Key Takeaways**:
-1. Food/dining = getMenu (NEVER getAvailableRooms)
-2. "I'm in room X" = getActiveBooking (guest is already checked in)
-3. Specific dates = getAvailableRooms (NEW booking only)
-4. Never auto-generate dates
-5. When unclear, ask clarifying questions
-
-**Most Important Rule**: The word "book" doesn't always mean room booking. Context matters!
-- "Book a room" = getAvailableRooms
-- "Book a dinner" = getMenu + addRoomServiceOrder
+1. **Existing guest ("I'm in room X")** = getActiveBooking
+2. **New booking with dates** = getAvailableRooms → addBooking
+3. **Modify existing booking** = updateBooking
+4. **Room details** = getRoomInfo
+5. **Never auto-generate dates** - always ask first
+6. **Always verify context** before selecting tool
