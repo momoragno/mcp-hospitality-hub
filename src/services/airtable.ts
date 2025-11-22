@@ -216,10 +216,13 @@ export class AirtableService {
     if (roomNumber) {
       const room = await this.getRoomByNumber(roomNumber);
       if (room) {
+        // Primary: Search by RoomId (validates room exists)
         conditions.push(`{RoomId} = '${room.id}'`);
       } else {
-        // Room doesn't exist, return empty array
-        return [];
+        // Fallback: Search directly by RoomNumber field
+        // This handles cases where room might not exist in Rooms table
+        // but we still have bookings with that room number
+        conditions.push(`{RoomNumber} = '${roomNumber}'`);
       }
     }
 
