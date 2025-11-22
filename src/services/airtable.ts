@@ -216,12 +216,12 @@ export class AirtableService {
     if (roomNumber) {
       const room = await this.getRoomByNumber(roomNumber);
       if (room) {
-        // Primary: Search by RoomId (validates room exists)
-        conditions.push(`{RoomId} = '${room.id}'`);
+        // Search by BOTH RoomId and RoomNumber using OR
+        // This handles data inconsistencies where RoomId might contain room number
+        // instead of Airtable record ID
+        conditions.push(`OR({RoomId} = '${room.id}', {RoomNumber} = '${roomNumber}')`);
       } else {
-        // Fallback: Search directly by RoomNumber field
-        // This handles cases where room might not exist in Rooms table
-        // but we still have bookings with that room number
+        // Room doesn't exist in Rooms table, search by RoomNumber only
         conditions.push(`{RoomNumber} = '${roomNumber}'`);
       }
     }

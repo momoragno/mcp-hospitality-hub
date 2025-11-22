@@ -62,8 +62,9 @@ Clicca su "+" accanto a Rooms → Rinomina in "Bookings"
 | rec123... | 202 | Mario Rossi | mario@example.com | 20/11/2024 | 23/11/2024 | 2 | 360 | checked-in |
 
 > **Nota:**
-> - **RoomId** sarà l'ID del record dalla tabella Rooms (es. "rec123...")
+> - **RoomId** dovrebbe essere l'ID del record dalla tabella Rooms (es. "rec123..."). Tuttavia, il sistema è tollerante e può gestire anche casi in cui RoomId contenga il numero della camera invece dell'ID Airtable.
 > - **RoomNumber** viene popolato automaticamente dal sistema quando si crea una prenotazione tramite `addBooking` tool (es. "202"). Non è necessario inserirlo manualmente.
+> - La ricerca di prenotazioni attive tramite `getActiveBooking` cerca sia per RoomId che per RoomNumber, garantendo che le prenotazioni vengano trovate anche in caso di inconsistenze nei dati.
 
 ## 3. Ottieni le Credenziali API
 
