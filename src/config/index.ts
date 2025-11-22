@@ -10,8 +10,6 @@ export const config = {
     tables: {
       rooms: process.env.AIRTABLE_ROOMS_TABLE || 'Rooms',
       bookings: process.env.AIRTABLE_BOOKINGS_TABLE || 'Bookings',
-      menu: process.env.AIRTABLE_MENU_TABLE || 'Menu',
-      roomService: process.env.AIRTABLE_ROOM_SERVICE_TABLE || 'RoomService',
     },
   },
 

@@ -4,10 +4,7 @@ import { MewsService } from './mews.js';
 import type {
   Room,
   Booking,
-  MenuItem,
-  RoomServiceOrder,
   AvailabilityQuery,
-  MenuFilters,
 } from '../types/index.js';
 
 /**
@@ -29,13 +26,6 @@ export interface PMSService {
   createBooking(booking: Booking): Promise<Booking>;
   updateBooking(bookingId: string, updates: Partial<Booking>): Promise<Booking>;
   getBookingByRoomNumber(roomNumber: string): Promise<Booking | null>;
-
-  // Menu Operations
-  getMenu(filters?: MenuFilters): Promise<MenuItem[]>;
-  getMenuItem(itemId: string): Promise<MenuItem | null>;
-
-  // Room Service Operations
-  createRoomServiceOrder(order: RoomServiceOrder): Promise<RoomServiceOrder>;
 }
 
 /**

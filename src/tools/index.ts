@@ -36,27 +36,6 @@ export const UpdateBookingSchema = z.object({
   specialRequests: z.string().optional().describe('Updated special requests'),
 });
 
-// Schema for: getMenu
-export const GetMenuSchema = z.object({
-  category: z.string().optional().describe('Filter menu by category (e.g., breakfast, lunch, dinner, drinks)'),
-  vegetarian: z.boolean().optional().describe('Show only vegetarian items'),
-  vegan: z.boolean().optional().describe('Show only vegan items'),
-  glutenFree: z.boolean().optional().describe('Show only gluten-free items'),
-  excludeAllergens: z.array(z.string()).optional().describe('Exclude items with these allergens (e.g., ["dairy", "nuts"])'),
-});
-
-// Schema for: addRoomServiceOrder
-export const CreateRoomServiceOrderSchema = z.object({
-  roomNumber: z.string().describe('Room number for delivery'),
-  items: z.array(
-    z.object({
-      menuItemId: z.string().describe('ID of the menu item'),
-      quantity: z.number().describe('Quantity to order'),
-    })
-  ).describe('List of items to order'),
-  specialInstructions: z.string().optional().describe('Special instructions for the order'),
-});
-
 // Schema for: getRoomInfo
 export const GetRoomByNumberSchema = z.object({
   roomNumber: z.string().describe('Room number to retrieve information for'),

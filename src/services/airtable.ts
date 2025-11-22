@@ -3,8 +3,6 @@ import { config } from '../config/index.js';
 import type {
   Room,
   Booking,
-  MenuItem,
-  RoomServiceOrder,
   AvailabilityQuery,
 } from '../types/index.js';
 
@@ -14,16 +12,14 @@ import type {
  * ========================================
  *
  * This service handles all interactions with Airtable database.
- * It provides methods for managing rooms, bookings, menu items, and room service orders.
+ * It provides methods for managing rooms and bookings.
  *
  * Structure:
  * 1. Constructor & Initialization
  * 2. Room Operations
  * 3. Booking Operations
- * 4. Menu Operations
- * 5. Room Service Operations
- * 6. Helper Methods
- * 7. Data Mapping Functions
+ * 4. Helper Methods
+ * 5. Data Mapping Functions
  */
 export class AirtableService {
   private base: Airtable.Base;
@@ -253,109 +249,7 @@ export class AirtableService {
   }
 
   // ========================================
-  // 4. MENU OPERATIONS
-  // ========================================
-
-  /**
-   * Get menu items with optional filters
-   */
-  async getMenu(filters?: import('../types/index.js').MenuFilters): Promise<MenuItem[]> {
-    const selectOptions: any = {};
-
-    // Filter by category in Airtable query if provided
-    if (filters?.category) {
-      selectOptions.filterByFormula = `{Category} = '${filters.category}'`;
-    }
-
-    const records = await this.base(config.airtable.tables.menu)
-      .select(selectOptions)
-      .all();
-
-    // Map all records
-    let items = records.map((record) => this.mapRecordToMenuItem(record));
-
-    // Filter by available
-    items = items.filter((item) => item.available !== false);
-
-    // Apply dietary filters in memory
-    if (filters?.vegetarian) {
-      items = items.filter((item) => item.vegetarian === true);
-    }
-
-    if (filters?.vegan) {
-      items = items.filter((item) => item.vegan === true);
-    }
-
-    if (filters?.glutenFree) {
-      items = items.filter((item) => item.glutenFree === true);
-    }
-
-    // Filter out items with excluded allergens
-    if (filters?.excludeAllergens && filters.excludeAllergens.length > 0) {
-      items = items.filter((item) => {
-        if (!item.allergens || item.allergens.length === 0) {
-          return true; // No allergens, so safe to include
-        }
-        // Check if any of the item's allergens are in the exclusion list
-        return !item.allergens.some((allergen) =>
-          filters.excludeAllergens!.some((excluded) =>
-            allergen.toLowerCase().includes(excluded.toLowerCase())
-          )
-        );
-      });
-    }
-
-    return items;
-  }
-
-  /**
-   * Get a specific menu item by ID
-   */
-  async getMenuItem(itemId: string): Promise<MenuItem | null> {
-    try {
-      const record = await this.base(config.airtable.tables.menu).find(itemId);
-      return this.mapRecordToMenuItem(record);
-    } catch (error) {
-      return null;
-    }
-  }
-
-  // ========================================
-  // 5. ROOM SERVICE OPERATIONS
-  // ========================================
-
-  /**
-   * Create a new room service order
-   */
-  async createRoomServiceOrder(
-    order: RoomServiceOrder
-  ): Promise<RoomServiceOrder> {
-    // Calculate total if not provided
-    let totalAmount = order.totalAmount;
-    if (!totalAmount) {
-      totalAmount = 0;
-      for (const item of order.items) {
-        const menuItem = await this.getMenuItem(item.menuItemId);
-        if (menuItem) {
-          totalAmount += menuItem.price * item.quantity;
-        }
-      }
-    }
-
-    const record = await this.base(config.airtable.tables.roomService).create({
-      RoomNumber: order.roomNumber,
-      Items: JSON.stringify(order.items),
-      TotalAmount: totalAmount,
-      OrderTime: order.orderTime,
-      Status: order.status || 'pending',
-      SpecialInstructions: order.specialInstructions || '',
-    });
-
-    return this.mapRecordToRoomServiceOrder(record);
-  }
-
-  // ========================================
-  // 6. HELPER METHODS
+  // 4. HELPER METHODS
   // ========================================
 
   /**
@@ -393,7 +287,7 @@ export class AirtableService {
   }
 
   // ========================================
-  // 7. DATA MAPPING FUNCTIONS
+  // 5. DATA MAPPING FUNCTIONS
   // ========================================
   // These functions convert Airtable records to our TypeScript types
 
@@ -429,41 +323,6 @@ export class AirtableService {
       totalPrice: record.get('TotalPrice') as number,
       status: record.get('Status') as Booking['status'],
       specialRequests: record.get('SpecialRequests') as string,
-    };
-  }
-
-  /**
-   * Map Airtable record to MenuItem object
-   */
-  private mapRecordToMenuItem(record: Records<FieldSet>[0]): MenuItem {
-    return {
-      id: record.id,
-      name: record.get('Name') as string,
-      description: record.get('Description') as string,
-      category: record.get('Category') as string,
-      price: record.get('Price') as number,
-      available: record.get('Available') as boolean,
-      allergens: (record.get('Allergens') as string)?.split(',').map(a => a.trim()) || [],
-      vegetarian: record.get('Vegetarian') as boolean | undefined,
-      vegan: record.get('Vegan') as boolean | undefined,
-      glutenFree: record.get('GlutenFree') as boolean | undefined,
-    };
-  }
-
-  /**
-   * Map Airtable record to RoomServiceOrder object
-   */
-  private mapRecordToRoomServiceOrder(
-    record: Records<FieldSet>[0]
-  ): RoomServiceOrder {
-    return {
-      id: record.id,
-      roomNumber: record.get('RoomNumber') as string,
-      items: JSON.parse(record.get('Items') as string),
-      totalAmount: record.get('TotalAmount') as number,
-      orderTime: record.get('OrderTime') as string,
-      status: record.get('Status') as RoomServiceOrder['status'],
-      specialInstructions: record.get('SpecialInstructions') as string,
     };
   }
 }

@@ -63,51 +63,6 @@ Clicca su "+" accanto a Rooms → Rinomina in "Bookings"
 
 > **Nota:** RoomId sarà l'ID del record dalla tabella Rooms. Puoi copiarlo dal record.
 
-### Tabella 3: Menu
-
-**Campi da creare:**
-
-| Nome Campo | Tipo | Opzioni |
-|------------|------|---------|
-| Name | Single line text | - |
-| Description | Long text | - |
-| Category | Single select | Options: Breakfast, Lunch, Dinner, Drinks, Desserts |
-| Price | Number | Format: Euro (€), Precision: 2 |
-| Available | Checkbox | - |
-| Allergens | Long text | - |
-
-**Dati di esempio:**
-
-| Name | Description | Category | Price | Available | Allergens |
-|------|-------------|----------|-------|-----------|-----------|
-| Continental Breakfast | Coffee, croissant, juice, yogurt | Breakfast | 12 | ✓ | Gluten, Dairy |
-| Caesar Salad | Romaine, parmesan, croutons, caesar dressing | Lunch | 14 | ✓ | Gluten, Dairy, Fish |
-| Margherita Pizza | Tomato, mozzarella, basil | Dinner | 16 | ✓ | Gluten, Dairy |
-| Grilled Salmon | Fresh salmon with vegetables | Dinner | 28 | ✓ | Fish |
-| Tiramisu | Classic Italian dessert | Desserts | 8 | ✓ | Gluten, Dairy, Eggs |
-| House Wine | Red or white | Drinks | 6 | ✓ | Sulfites |
-| Craft Beer | Local selection | Drinks | 7 | ✓ | Gluten |
-| Fresh Orange Juice | 250ml | Drinks | 4 | ✓ | - |
-
-### Tabella 4: RoomService
-
-**Campi da creare:**
-
-| Nome Campo | Tipo | Opzioni |
-|------------|------|---------|
-| RoomNumber | Single line text | - |
-| Items | Long text | (Conterrà JSON) |
-| TotalAmount | Number | Format: Euro (€), Precision: 2 |
-| OrderTime | Date | Include time: Yes |
-| Status | Single select | Options: pending, preparing, delivered, cancelled |
-| SpecialInstructions | Long text | - |
-
-**Esempio dato:**
-
-| RoomNumber | Items | TotalAmount | OrderTime | Status | SpecialInstructions |
-|------------|-------|-------------|-----------|--------|---------------------|
-| 202 | [{"menuItemId":"rec...", "quantity":2, "name":"Margherita Pizza", "price":16}] | 32 | 20/11/2024 19:30 | delivered | No onions please |
-
 ## 3. Ottieni le Credenziali API
 
 ### API Key
@@ -142,8 +97,6 @@ AIRTABLE_BASE_ID=appAbC123dEfGhI456  # Il Base ID
 # Nomi delle tabelle (se hai usato nomi diversi)
 AIRTABLE_ROOMS_TABLE=Rooms
 AIRTABLE_BOOKINGS_TABLE=Bookings
-AIRTABLE_MENU_TABLE=Menu
-AIRTABLE_ROOM_SERVICE_TABLE=RoomService
 ```
 
 ## 5. Test della Connessione
@@ -157,9 +110,9 @@ npm run inspector
 ```
 
 Nell'inspector, prova:
-1. `get_menu` (dovrebbe restituire i piatti che hai inserito)
-2. `check_availability` con date future
-3. `get_room_info` con un numero di camera esistente
+1. `getAvailableRooms` con date future
+2. `getRoomInfo` con un numero di camera esistente
+3. `getActiveBooking` per cercare una prenotazione
 
 ## 6. Tips
 
@@ -170,13 +123,11 @@ Nell'inspector, prova:
 ### Automazioni Airtable (opzionali)
 Puoi creare automazioni in Airtable per:
 - Inviare email di conferma quando Status booking = "confirmed"
-- Notificare la cucina quando arriva ordine room service
 - Alert quando camera passa a "maintenance"
 
 ### Views Utili
 - **Rooms → Available Today**: Filter `Status = available`
 - **Bookings → Check-ins Today**: Filter per data odierna
-- **RoomService → Pending Orders**: Filter `Status = pending`
 
 ### Backup
 Vai su "..." in alto a destra della base → "Download CSV" → Esporta tutte le tabelle regolarmente
@@ -199,22 +150,23 @@ Vai su "..." in alto a destra della base → "Download CSV" → Esporta tutte le
 ## 8. Schema Visuale
 
 ```
-┌─────────────────────────────────────────────────┐
-│              HOTEL MANAGEMENT                    │
-│                 (Airtable Base)                  │
-├──────────────┬──────────────┬──────────────┬────┤
-│    Rooms     │   Bookings   │     Menu     │ RS │
-├──────────────┼──────────────┼──────────────┼────┤
-│ • Number     │ • RoomId     │ • Name       │ •  │
-│ • Type       │ • RoomNumber │ • Description│ R  │
-│ • Price      │ • GuestName  │ • Category   │ o  │
-│ • Capacity   │ • GuestEmail │ • Price      │ o  │
-│ • Amenities  │ • CheckIn    │ • Available  │ m  │
-│ • Status     │ • CheckOut   │ • Allergens  │ S  │
-│              │ • Guests     │              │ v  │
-│              │ • TotalPrice │              │ c  │
-│              │ • Status     │              │    │
-└──────────────┴──────────────┴──────────────┴────┘
+┌─────────────────────────────────────────┐
+│         HOTEL MANAGEMENT                │
+│          (Airtable Base)                │
+├──────────────────┬──────────────────────┤
+│      Rooms       │      Bookings        │
+├──────────────────┼──────────────────────┤
+│ • Number         │ • RoomId             │
+│ • Type           │ • RoomNumber         │
+│ • Price          │ • GuestName          │
+│ • Capacity       │ • GuestEmail         │
+│ • Amenities      │ • CheckIn            │
+│ • Status         │ • CheckOut           │
+│                  │ • Guests             │
+│                  │ • TotalPrice         │
+│                  │ • Status             │
+│                  │ • SpecialRequests    │
+└──────────────────┴──────────────────────┘
 ```
 
 ## Pronto!

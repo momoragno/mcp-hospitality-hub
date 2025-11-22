@@ -3,8 +3,6 @@ import { config } from '../config/index.js';
 import type {
   Room,
   Booking,
-  MenuItem,
-  RoomServiceOrder,
   AvailabilityQuery,
 } from '../types/index.js';
 
@@ -15,16 +13,14 @@ import type {
  *
  * This service handles all interactions with Mews API.
  * Mews is a hotel management system (PMS - Property Management System).
- * It provides methods for managing rooms, bookings, menu items, and room service orders.
+ * It provides methods for managing rooms and bookings.
  *
  * Structure:
  * 1. Constructor & Initialization
  * 2. Room Operations
  * 3. Booking Operations
- * 4. Menu Operations
- * 5. Room Service Operations
- * 6. Helper Methods
- * 7. Data Mapping Functions
+ * 4. Helper Methods
+ * 5. Data Mapping Functions
  *
  * API Documentation: https://mews-systems.gitbook.io/connector-api
  */
@@ -209,143 +205,7 @@ export class MewsService {
   }
 
   // ========================================
-  // 4. MENU OPERATIONS
-  // ========================================
-
-  /**
-   * Get menu items with optional filters
-   * In Mews, menu items are called "Products"
-   */
-  async getMenu(filters?: import('../types/index.js').MenuFilters): Promise<MenuItem[]> {
-    const response = await this.client.post('/api/connector/v1/products/getAll', {
-      AccessToken: this.accessToken,
-      ClientToken: this.clientToken,
-      ServiceIds: [config.mews.serviceId],
-    });
-
-    let items = response.data.Products.map((product: any) =>
-      this.mapMewsProductToMenuItem(product)
-    );
-
-    // Apply filters
-    if (filters?.category) {
-      items = items.filter((item: MenuItem) =>
-        item.category.toLowerCase() === filters.category!.toLowerCase()
-      );
-    }
-
-    if (filters?.vegetarian) {
-      items = items.filter((item: MenuItem) => item.vegetarian === true);
-    }
-
-    if (filters?.vegan) {
-      items = items.filter((item: MenuItem) => item.vegan === true);
-    }
-
-    if (filters?.glutenFree) {
-      items = items.filter((item: MenuItem) => item.glutenFree === true);
-    }
-
-    // Filter out items with excluded allergens
-    if (filters?.excludeAllergens && filters.excludeAllergens.length > 0) {
-      items = items.filter((item: MenuItem) => {
-        if (!item.allergens || item.allergens.length === 0) {
-          return true; // No allergens, so safe to include
-        }
-        // Check if any of the item's allergens are in the exclusion list
-        return !item.allergens.some((allergen: string) =>
-          filters.excludeAllergens!.some((excluded: string) =>
-            allergen.toLowerCase().includes(excluded.toLowerCase())
-          )
-        );
-      });
-    }
-
-    return items;
-  }
-
-  /**
-   * Get a specific menu item by ID
-   */
-  async getMenuItem(itemId: string): Promise<MenuItem | null> {
-    try {
-      const response = await this.client.post('/api/connector/v1/products/get', {
-        AccessToken: this.accessToken,
-        ClientToken: this.clientToken,
-        ProductIds: [itemId],
-      });
-
-      if (response.data.Products.length === 0) return null;
-
-      return this.mapMewsProductToMenuItem(response.data.Products[0]);
-    } catch (error) {
-      return null;
-    }
-  }
-
-  // ========================================
-  // 5. ROOM SERVICE OPERATIONS
-  // ========================================
-
-  /**
-   * Create a new room service order
-   * In Mews, this is done by adding items/charges to a bill
-   */
-  async createRoomServiceOrder(
-    order: RoomServiceOrder
-  ): Promise<RoomServiceOrder> {
-    // Step 1: Get the booking for this room to get the bill ID
-    const booking = await this.getBookingByRoomNumber(order.roomNumber);
-    if (!booking) {
-      throw new Error(`No active booking found for room ${order.roomNumber}`);
-    }
-
-    // Step 2: Calculate total if not provided
-    let totalAmount = order.totalAmount;
-    if (!totalAmount) {
-      totalAmount = 0;
-      for (const item of order.items) {
-        const menuItem = await this.getMenuItem(item.menuItemId);
-        if (menuItem) {
-          totalAmount += menuItem.price * item.quantity;
-        }
-      }
-    }
-
-    // Step 3: Add order items as charges to the bill
-    const orderItems = [];
-    for (const item of order.items) {
-      const menuItem = await this.getMenuItem(item.menuItemId);
-      if (menuItem) {
-        orderItems.push({
-          ProductId: item.menuItemId,
-          Count: item.quantity,
-          Notes: order.specialInstructions || '',
-        });
-      }
-    }
-
-    const response = await this.client.post('/api/connector/v1/orderItems/add', {
-      AccessToken: this.accessToken,
-      ClientToken: this.clientToken,
-      BillId: booking.id, // Using booking ID as bill reference
-      OrderItems: orderItems,
-    });
-
-    // Step 4: Map the response to our RoomServiceOrder type
-    return {
-      id: response.data.OrderItems[0].Id,
-      roomNumber: order.roomNumber,
-      items: order.items,
-      totalAmount: totalAmount,
-      orderTime: order.orderTime,
-      status: 'pending',
-      specialInstructions: order.specialInstructions || '',
-    };
-  }
-
-  // ========================================
-  // 6. HELPER METHODS
+  // 4. HELPER METHODS
   // ========================================
 
   /**
@@ -416,7 +276,7 @@ export class MewsService {
   }
 
   // ========================================
-  // 7. DATA MAPPING FUNCTIONS
+  // 5. DATA MAPPING FUNCTIONS
   // ========================================
   // These functions convert Mews API responses to our TypeScript types
 
@@ -464,24 +324,6 @@ export class MewsService {
       totalPrice: reservation.TotalAmount?.Amount || 0,
       status: this.mapMewsStateToStatus(reservation.State),
       specialRequests: reservation.Notes || '',
-    };
-  }
-
-  /**
-   * Map Mews Product to MenuItem object
-   */
-  private mapMewsProductToMenuItem(product: any): MenuItem {
-    return {
-      id: product.Id,
-      name: product.Name,
-      description: product.Description || '',
-      category: product.CategoryName || 'general',
-      price: product.Price?.Amount || 0,
-      available: product.IsActive || false,
-      allergens: product.Allergens ? product.Allergens.split(',').map((a: string) => a.trim()) : [],
-      vegetarian: product.IsVegetarian || false,
-      vegan: product.IsVegan || false,
-      glutenFree: product.IsGlutenFree || false,
     };
   }
 }

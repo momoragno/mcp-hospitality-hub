@@ -15,7 +15,6 @@ Un server MCP (Model Context Protocol) per gestire operazioni di receptionist AI
 ## Caratteristiche
 
 - ✅ **Gestione Prenotazioni**: Verifica disponibilità e crea/modifica prenotazioni
-- 🍽️ **Room Service**: Gestione ordini dal menu e addebito automatico alla camera
 - 🛏️ **Gestione Camere**: Informazioni dettagliate sulle camere
 - 📞 **Supporto Reclami**: Recupero informazioni per gestire problemi (es. rumore)
 - 🔄 **Architettura Scalabile**: Pronto per essere esteso con nuove funzionalità
@@ -66,22 +65,6 @@ Il tuo Airtable Base dovrebbe avere queste tabelle:
 - `Status` (Single select) - confirmed, checked-in, checked-out, cancelled
 - `SpecialRequests` (Long text)
 
-### Tabella "Menu"
-- `Name` (Single line text) - Nome piatto
-- `Description` (Long text)
-- `Category` (Single select) - breakfast, lunch, dinner, drinks
-- `Price` (Number)
-- `Available` (Checkbox)
-- `Allergens` (Long text) - Allergeni separati da virgola
-
-### Tabella "RoomService"
-- `RoomNumber` (Single line text)
-- `Items` (Long text) - JSON degli items ordinati
-- `TotalAmount` (Number)
-- `OrderTime` (Date/Time)
-- `Status` (Single select) - pending, preparing, delivered, cancelled
-- `SpecialInstructions` (Long text)
-
 ## Configurazione .env
 
 ```env
@@ -90,8 +73,6 @@ AIRTABLE_BASE_ID=your_base_id_here
 
 AIRTABLE_ROOMS_TABLE=Rooms
 AIRTABLE_BOOKINGS_TABLE=Bookings
-AIRTABLE_MENU_TABLE=Menu
-AIRTABLE_ROOM_SERVICE_TABLE=RoomService
 ```
 
 ## Build
@@ -144,13 +125,11 @@ Nel file di configurazione dell'agente ElevenLabs (o Claude Desktop per testing)
 
 L'agente ElevenLabs avrà accesso a questi tool:
 
-- `check_availability` - Verifica disponibilità camere
-- `create_booking` - Crea nuova prenotazione
-- `update_booking` - Modifica prenotazione esistente
-- `get_menu` - Ottieni menu (con filtro categoria opzionale)
-- `create_room_service_order` - Ordina room service
-- `get_room_info` - Info su una camera specifica
-- `get_active_booking` - Trova prenotazione attiva per camera
+- `getAvailableRooms` - Verifica disponibilità camere
+- `addBooking` - Crea nuova prenotazione
+- `updateBooking` - Modifica prenotazione esistente
+- `getRoomInfo` - Info su una camera specifica
+- `getActiveBooking` - Trova prenotazione attiva per camera
 
 ## Casi d'Uso Supportati
 
@@ -158,30 +137,21 @@ L'agente ElevenLabs avrà accesso a questi tool:
 ```
 Cliente: "Vorrei prenotare una camera dal 15 al 20 dicembre per 2 persone"
 Agente:
-  1. Usa check_availability(checkIn: "2024-12-15", checkOut: "2024-12-20", guests: 2)
+  1. Usa getAvailableRooms(checkIn: "2024-12-15", checkOut: "2024-12-20", guests: 2)
   2. Propone camere disponibili
-  3. Usa create_booking(...) con i dati del cliente
+  3. Usa addBooking(...) con i dati del cliente
 ```
 
-### 2. Room Service
-```
-Cliente: "Vorrei ordinare la cena in camera 305"
-Agente:
-  1. Usa get_menu(category: "dinner")
-  2. Presenta le opzioni
-  3. Usa create_room_service_order(roomNumber: "305", items: [...])
-```
-
-### 3. Noise Complaint
+### 2. Noise Complaint
 ```
 Cliente: "C'è rumore dalla camera 304"
 Agente:
-  1. Usa get_room_info(roomNumber: "304")
-  2. Usa get_active_booking(roomNumber: "304")
+  1. Usa getRoomInfo(roomNumber: "304")
+  2. Usa getActiveBooking(roomNumber: "304")
   3. Può identificare e contattare l'ospite
 ```
 
-### 4. Change Booking
+### 3. Change Booking
 ```
 Cliente: "Voglio cambiare le date della mia prenotazione"
 Agente:
